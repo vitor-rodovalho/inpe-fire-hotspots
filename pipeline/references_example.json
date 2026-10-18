@@ -1,0 +1,20 @@
+{
+  "satelites": {
+    "GOES-19": "geoestacionario",
+    "MSG-03": "geoestacionario",
+    "AQUA_M-M": "polar",
+    "AQUA_M-T": "polar",
+    "METOP-B": "polar",
+    "METOP-C": "polar",
+    "NOAA-20": "polar",
+    "NOAA-21": "polar",
+    "NPP-375": "polar",
+    "NPP-375D": "polar",
+    "TERRA_M-M": "polar",
+    "TERRA_M-T": "polar"
+  },
+  "limiares": {
+    "geoestacionario": 50.0,
+    "polar": 30.0
+  }
+}

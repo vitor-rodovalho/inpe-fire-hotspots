@@ -1,0 +1,19 @@
+{
+  "id": "a1b2c3",
+  "lat": " -9.51",
+  "lon": "-56.20",
+  "data_hora_gmt": "2026-09-30 18:40:00",
+  "satelite": "GOES-19",
+  "municipio": "ALTA FLORESTA",
+  "estado": "MATO GROSSO",
+  "pais": "Brasil",
+  "municipio_id": "5100250",
+  "estado_id": "51",
+  "pais_id": "33",
+  "numero_dias_sem_chuva": " 21",
+  "precipitacao": "0.0",
+  "risco_fogo": "0.97",
+  "bioma": "Amazônia",
+  "frp": "35.2",
+  "publicado_em": "2026-10-16T18:00:00.123Z"
+}

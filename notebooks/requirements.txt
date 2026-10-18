@@ -1,0 +1,5 @@
+# Só para rodar os notebooks na máquina. No BigQuery Studio tudo já vem instalado
+google-cloud-bigquery[pandas]>=3.25
+matplotlib>=3.8
+numpy>=1.26
+jupyterlab>=4.2

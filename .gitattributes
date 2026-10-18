@@ -1,0 +1,6 @@
+# Finais de linha sempre LF. Scripts .sh e o config.env com CRLF (padrão do
+# Windows) quebram no bash do WSL e do Cloud Shell
+* text=auto eol=lf
+*.ipynb text eol=lf
+*.pdf binary
+*.png binary
