@@ -44,7 +44,13 @@ bash ingestion/run.sh download_inpe --tipo mensal --inicio 2026-08   # Só um m�
 | `--somente-listar` | - | Mostra o que seria baixado, sem baixar |
 
 Rodar de novo não duplica nada: um arquivo só é baixado outra vez se o
-tamanho dele no INPE mudou. Se o INPE publicar um arquivo zipado, o script
+tamanho dele no INPE mudou.
+
+Se o INPE não responder, o script tenta de novo até 4 vezes, com espera
+crescente entre as tentativas. Um arquivo que ainda assim falhar aparece como
+`[falhou]` e os outros continuam. Depois de 3 falhas seguidas, o script para,
+porque o INPE provavelmente está fora do ar. Nos dois casos, basta rodar o
+mesmo comando de novo mais tarde. Se o INPE publicar um arquivo zipado, o script
 extrai o CSV antes de enviar. Ao final, ele reescreve
 `gs://<BUCKET>/raw/manifesto/arquivos.csv` com o número de linhas de cada
 arquivo, que a carga da Bronze usa para conferir se nenhuma linha se perdeu.
@@ -84,16 +90,16 @@ segundos e um dia inteiro em cerca de 2 minutos e meio.
 
 ```bash
 # Ver o plano sem publicar: quantos focos, período e duração estimada
-bash ingestion/run.sh replay_pubsub --inicio 2026-09-01 --fim 2026-09-03 --somente-contar
+bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-03 --somente-contar
 
 # Replay normal (deixe o job do Dataflow ligado antes)
-bash ingestion/run.sh replay_pubsub --inicio 2026-09-01 --fim 2026-09-03
+bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-03
 
 # Com cópias inválidas de 2% dos focos, para a tabela streaming_erros
-bash ingestion/run.sh replay_pubsub --inicio 2026-09-04 --fracao-invalidas 0.02
+bash ingestion/run.sh replay_pubsub --inicio 2026-10-04 --fracao-invalidas 0.02
 
 # Teste rápido: 200 focos, um a cada 0,1 s, mais 5% de cópias inválidas
-bash ingestion/run.sh replay_pubsub --inicio 2026-09-30 --max-mensagens 200 \
+bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --max-mensagens 200 \
   --intervalo-fixo 0.1 --fracao-invalidas 0.05
 ```
 
@@ -132,7 +138,7 @@ um período (por exemplo, num novo ensaio), reinicie o job e use
 
 ```bash
 bash pipeline/drain.sh && bash pipeline/deploy.sh
-bash ingestion/run.sh replay_pubsub --inicio 2026-09-01 --permitir-voltar
+bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --permitir-voltar
 ```
 
 

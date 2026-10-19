@@ -22,12 +22,15 @@ Uso (a partir da raiz do repositório):
 import argparse
 import csv
 import datetime as dt
+import http.client
 import io
 import json
 import os
 import shutil
+import ssl
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -54,14 +57,18 @@ INPE_PASTA_DIARIO = os.environ.get("INPE_PASTA_DIARIO", "diario/Brasil")
 
 NOME_MANIFESTO = "arquivos.csv"
 
-MES_INICIO = os.environ.get("MES_INICIO", "2025-09")  # AAAA-MM
-MES_FIM = os.environ.get("MES_FIM", "2026-08")  # AAAA-MM
-DIA_INICIO = os.environ.get("DIA_INICIO", "2026-09-01")  # AAAA-MM-DD
+MES_INICIO = os.environ.get("MES_INICIO", "2025-10")  # AAAA-MM
+MES_FIM = os.environ.get("MES_FIM", "2026-09")  # AAAA-MM
+DIA_INICIO = os.environ.get("DIA_INICIO", "2026-10-01")  # AAAA-MM-DD
 DIA_FIM = os.environ.get("DIA_FIM", "")  # Vazio = ontem
 
 EXTENSOES_TENTADAS = (".csv", ".zip")  # O INPE às vezes publica zipado
 
-TIMEOUT_S = 180
+TIMEOUT_CONSULTA_S = 30  # Só confere se o arquivo existe e o tamanho dele
+TIMEOUT_DOWNLOAD_S = 180
+TENTATIVAS_REDE = 4  # O servidor do INPE às vezes não responde, então tenta de novo antes de desistir
+ESPERA_INICIAL_S = 5  # Espera antes da 2ª tentativa, então dobra a cada nova tentativa
+LIMITE_FALHAS_SEGUIDAS = 3  # Arquivos seguidos que falham antes de concluir que o INPE está fora do ar
 TAMANHO_BLOCO = 1024 * 1024
 CABECALHO_MANIFESTO = ["uri", "tipo", "linhas", "bytes_csv", "url_origem", "baixado_em"]
 
@@ -182,11 +189,40 @@ class DestinoLocal:
 # --- INPE --------------------------------------------------------------------
 
 
+# Falhas passageiras de conexão (sem resposta, conexão caída, download cortado)
+ERROS_DE_REDE = (urllib.error.URLError, http.client.HTTPException, ssl.SSLError, TimeoutError, ConnectionError)
+
+
+def com_novas_tentativas(funcao, *args) -> Any:
+    """
+    Chama funcao(*args) e, numa falha de rede, espera e tenta de novo.
+
+    Um erro HTTP de verdade (por exemplo 403) não é repetido; um erro 5xx, sim.
+    A última tentativa fica fora do laço: se ela também falhar, o erro sobe para
+    quem chamou. TENTATIVAS_REDE menor que 1 vale como 1.
+    """
+    tentativas = max(1, TENTATIVAS_REDE)
+    espera = ESPERA_INICIAL_S
+    for tentativa in range(1, tentativas):
+        try:
+            return funcao(*args)
+        except urllib.error.HTTPError as erro:
+            if erro.code < 500:
+                raise
+            motivo = f"HTTP {erro.code}"
+        except ERROS_DE_REDE as erro:
+            motivo = getattr(erro, "reason", None) or type(erro).__name__
+        print(f"    [rede] tentativa {tentativa} de {tentativas} falhou ({motivo}); nova tentativa em {espera} s")
+        time.sleep(espera)
+        espera *= 2
+    return funcao(*args)
+
+
 def tamanho_remoto(url) -> int | None:
     """Tamanho do arquivo no INPE em bytes, ou None se ele não existir."""
     requisicao = urllib.request.Request(url, method="HEAD")
     try:
-        with urllib.request.urlopen(requisicao, timeout=TIMEOUT_S) as resposta:
+        with urllib.request.urlopen(requisicao, timeout=TIMEOUT_CONSULTA_S) as resposta:
             return int(resposta.headers.get("Content-Length", -1))
     except urllib.error.HTTPError as erro:
         if erro.code == 404:
@@ -198,14 +234,14 @@ def localizar_no_inpe(url_sem_extensao) -> tuple[str | None, str | None, int | N
     """Tenta cada extensão e devolve (url, extensao, tamanho) da primeira que existir."""
     for extensao in EXTENSOES_TENTADAS:
         url = url_sem_extensao + extensao
-        tamanho = tamanho_remoto(url)
+        tamanho = com_novas_tentativas(tamanho_remoto, url)
         if tamanho is not None:
             return url, extensao, tamanho
     return None, None, None
 
 
 def baixar(url, destino) -> None:
-    with urllib.request.urlopen(url, timeout=TIMEOUT_S) as resposta, open(destino, "wb") as saida:
+    with urllib.request.urlopen(url, timeout=TIMEOUT_DOWNLOAD_S) as resposta, open(destino, "wb") as saida:
         shutil.copyfileobj(resposta, saida, TAMANHO_BLOCO)
 
 
@@ -252,7 +288,7 @@ def processar(
 
     with tempfile.TemporaryDirectory() as pasta_tmp:
         baixado = os.path.join(pasta_tmp, nome + extensao)
-        baixar(url, baixado)
+        com_novas_tentativas(baixar, url, baixado)
         caminho_csv = os.path.join(pasta_tmp, nome + ".csv")
         if extensao == ".zip":
             extrair_csv_do_zip(baixado, caminho_csv)
@@ -352,14 +388,32 @@ def main() -> None:
     tarefas = listar_tarefas(args)
     print(f"{len(tarefas)} arquivos para conferir em {INPE_URL_BASE}")
     print(f"Destino: {destino.descricao}")
-    resultado = {}
-    for tipo, periodo in tarefas:
-        situacao = processar(destino, tipo, periodo, args.forcar, args.somente_listar)
+    resultado, falhas_seguidas = {}, 0
+    for indice, (tipo, periodo) in enumerate(tarefas):
+        try:
+            situacao = processar(destino, tipo, periodo, args.forcar, args.somente_listar)
+        except ERROS_DE_REDE as erro:
+            print(f"  [falhou]          {tipo} {periodo}: {getattr(erro, 'reason', None) or erro}")
+            situacao = "falhou"
         resultado[situacao] = resultado.get(situacao, 0) + 1
+        falhas_seguidas = falhas_seguidas + 1 if situacao == "falhou" else 0
+        restantes = len(tarefas) - indice - 1
+        if falhas_seguidas == LIMITE_FALHAS_SEGUIDAS and restantes:
+            print(
+                f"\n  {falhas_seguidas} arquivos seguidos falharam: o INPE parece fora do ar. "
+                f"Os outros {restantes} ficaram sem conferir."
+            )
+            resultado["nao_conferido"] = restantes
+            break
     print("\nResumo:", ", ".join(f"{k}={v}" for k, v in sorted(resultado.items())))
 
     if not args.somente_listar:
         reescrever_manifesto(destino)
+    if resultado.get("falhou"):
+        sys.exit(
+            "\nAlguns arquivos falharam (veja [falhou] acima). Se foi a rede, rode o mesmo "
+            "comando de novo: o que já está no destino não é baixado outra vez."
+        )
 
 
 if __name__ == "__main__":

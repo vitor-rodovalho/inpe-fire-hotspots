@@ -16,7 +16,7 @@ quem consome. Os valores concretos ficam em `config.env`.
 | Serviço do Cloud Run | `api-foco-intenso` | `CLOUD_RUN_SERVICO` |
 | Conta de serviço do Dataflow | `sa-dataflow-focos` | `SA_DATAFLOW` |
 | Conta de serviço da API | `sa-api-foco-intenso` | `SA_API` |
-| Data de corte batch/streaming | `2026-09-01` | `DATA_CORTE` |
+| Data de corte batch/streaming | `2026-10-01` | `DATA_CORTE` |
 
 Pastas do bucket: `raw/mensal/`, `raw/diario/`, `raw/manifesto/`,
 `dataflow/tmp/`, `dataflow/staging/`, `modelos/foco_intenso/`.

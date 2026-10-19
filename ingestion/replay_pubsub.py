@@ -23,13 +23,13 @@ Com --saida ARQUIVO.jsonl, nada vai para o Pub/Sub: as mensagens são gravadas
 num arquivo, que pipeline/run_local.sh --offline lê (teste sem nuvem).
 
 Uso (a partir da raiz do repositório):
-    bash ingestion/run.sh replay_pubsub --inicio 2026-09-01 --fim 2026-09-03
-    bash ingestion/run.sh replay_pubsub --inicio 2026-09-01 --fator 1200 --fracao-invalidas 0.02
-    bash ingestion/run.sh replay_pubsub --inicio 2026-09-01 --fim 2026-09-07 --somente-contar
+    bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-03
+    bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fator 1200 --fracao-invalidas 0.02
+    bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-07 --somente-contar
     # teste rápido: 200 focos, um a cada 0,1 s, mais 5% de cópias inválidas
-    bash ingestion/run.sh replay_pubsub --inicio 2026-09-30 --max-mensagens 200 \\
+    bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --max-mensagens 200 \\
         --intervalo-fixo 0.1 --fracao-invalidas 0.05
-    # Teste sem nuvem: CSVs de uma pasta local para um arquivo
+    # teste sem nuvem: CSVs de uma pasta local para um arquivo
     bash ingestion/run.sh replay_pubsub --arquivos dados/raw/diario/*.csv \\
         --fracao-invalidas 0.05 --saida dados/mensagens.jsonl
 """

@@ -6,9 +6,9 @@ base no que se sabe no momento da detecção.
 
 **O batch ensina, o streaming aplica, avalia e agrega.**
 
-- **Batch:** arquivos mensais do INPE (set/2025 a ago/2026) passam por Bronze,
+- **Batch:** arquivos mensais do INPE (out/2025 a set/2026) passam por Bronze,
   Silver e Gold no BigQuery e treinam o modelo.
-- **Streaming:** arquivos diários a partir de 01/09/2026 são publicados foco a
+- **Streaming:** arquivos diários a partir de 01/10/2026 são publicados foco a
   foco no Pub/Sub; o Dataflow valida, limpa, grava e agrega em janelas de 1 hora.
 - **Modelo e API:** classificador do BigQuery ML registrado no Vertex AI e
   servido por uma API REST no Cloud Run.
@@ -82,7 +82,7 @@ bash sql/run_sql.sh sql/bronze/04_data_profile.sql   # Versão rápida, só text
 # 4. Pipeline de streaming: veja pipeline/README.md
 
 # 5. Replay dos diários para o Pub/Sub (com o job do Dataflow ligado)
-bash ingestion/run.sh replay_pubsub --inicio 2026-09-01 --fim 2026-09-03
+bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-03
 ```
 
 Cada script de `infra/` pode ser rodado de novo sem efeito colateral.

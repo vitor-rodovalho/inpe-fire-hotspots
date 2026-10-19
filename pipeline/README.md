@@ -83,7 +83,7 @@ bash pipeline/run_local.sh
 
 # 4. Em outro terminal, publicar focos de teste (5% propositalmente inválidos)
 pip install -r ingestion/requirements.txt
-bash ingestion/run.sh replay_pubsub --inicio 2026-09-30 \
+bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 \
   --max-mensagens 200 --intervalo-fixo 0.1 --fracao-invalidas 0.05
 
 # 5. Conferir
