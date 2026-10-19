@@ -97,8 +97,20 @@ docker run --rm -p 8080:8080 -e MODELO_URI=/modelo \
 
 ## Deploy no Cloud Run
 
-Pré-requisito: `bash infra/00_setup_all.sh`, que já cria a conta de serviço
-da API (só leitura no bucket) e o repositório Docker (`09_artifact_registry.sh`).
+**Com um comando só** (recomendado, no Cloud Shell):
+
+```bash
+git clone -b frente-d/api https://github.com/vitor-rodovalho/inpe-fire-hotspots.git && cd inpe-fire-hotspots && bash api/subir_api.sh
+```
+
+`subir_api.sh` confere o acesso e a conta de serviço, liga as APIs, cria o
+repositório Docker, treina e publica o modelo provisório, faz o deploy e
+mede a latência. Para no primeiro erro dizendo o que fazer, e pode ser rodado
+de novo. Com o modelo real: `bash api/subir_api.sh --modelo v1`.
+
+**Passo a passo**, se preferir rodar cada parte. Pré-requisito:
+`bash infra/00_setup_all.sh`, que já cria a conta de serviço da API (só
+leitura no bucket) e o repositório Docker (`09_artifact_registry.sh`).
 
 ```bash
 python api/modelo_provisorio/treinar.py   # 1. pacote do modelo provisório
@@ -109,6 +121,7 @@ bash api/medir_latencia.sh                # 4. mediana e p95 do /predict
 
 | Script | O que faz |
 |---|---|
+| `subir_api.sh [--modelo V] [--min N]` | Tudo abaixo em sequência, com as checagens de acesso |
 | `publicar_modelo.sh [--pasta P] [--versao V]` | Copia um pacote para `modelos/foco_intenso/<V>/` no bucket |
 | `deploy.sh [--modelo V] [--min N]` | Cloud Build -> Artifact Registry (tag = commit) -> Cloud Run; chama `/health` e `/predict` no fim |
 | `medir_latencia.sh [URL] [N]` | N chamadas a `/predict`; a primeira à parte (cold start), depois mediana e p95 |

@@ -39,7 +39,16 @@ if ! gcloud storage ls "${MODELO_URI}/manifest.json" >/dev/null 2>&1; then
 fi
 
 log "Construindo ${IMAGEM}"
-gcloud builds submit . --tag="${IMAGEM}"
+if ! gcloud builds submit . --tag="${IMAGEM}"; then
+  NUMERO=$(gcloud projects describe "${PROJECT_ID}" --format="value(projectNumber)")
+  echo >&2
+  echo "ERRO no build. Se a mensagem fala em permissão (storage, artifactregistry), a conta" >&2
+  echo "do Cloud Build não pode gravar a imagem. O dono do projeto roda:" >&2
+  echo "  gcloud projects add-iam-policy-binding ${PROJECT_ID} \\" >&2
+  echo "    --member=serviceAccount:${NUMERO}-compute@developer.gserviceaccount.com \\" >&2
+  echo "    --role=roles/cloudbuild.builds.builder" >&2
+  exit 1
+fi
 
 log "Publicando ${CLOUD_RUN_SERVICO} em ${REGIAO} (modelo ${VERSAO}, mínimo ${MIN_INSTANCIAS} instância)"
 gcloud run deploy "${CLOUD_RUN_SERVICO}" \
@@ -60,6 +69,13 @@ gcloud run deploy "${CLOUD_RUN_SERVICO}" \
 URL=$(gcloud run services describe "${CLOUD_RUN_SERVICO}" --region="${REGIAO}" --format="value(status.url)")
 
 log "Conferindo ${URL}"
+if [[ "$(curl -s -o /dev/null -w "%{http_code}" "${URL}/health")" == "403" ]]; then
+  echo "ERRO: o serviço está no ar, mas não é público (403). O papel de editor não pode" >&2
+  echo "liberar acesso público. O dono do projeto roda:" >&2
+  echo "  gcloud run services add-iam-policy-binding ${CLOUD_RUN_SERVICO} --region=${REGIAO} \\" >&2
+  echo "    --member=allUsers --role=roles/run.invoker" >&2
+  exit 1
+fi
 curl -sS --fail "${URL}/health"
 echo
 curl -sS --fail -X POST "${URL}/predict" \
