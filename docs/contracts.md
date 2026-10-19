@@ -49,8 +49,9 @@ valores como vieram (texto, sem limpeza), mais `publicado_em`.
 | `ts_evento` | Horário da detecção em RFC 3339, por exemplo `2026-09-30T18:40:00Z` | Tempo do evento nas janelas do Beam |
 
 Sem `ts_evento` (ou com valor fora do formato) o Dataflow não consegue ler a
-mensagem. O replay nunca deve voltar no tempo com o job ligado: focos com
-horário anterior a uma janela já fechada são descartados dos agregados.
+mensagem. O replay nunca deve voltar no tempo com o job ligado: passados os
+10 minutos da deduplicação, os focos repetidos entram de novo na Silver e nos
+agregados.
 
 **Cópias inválidas de teste:** com `--fracao-invalidas`, o replay publica, além
 do foco real, uma cópia estragada dele com o atributo `id` terminado em
@@ -86,10 +87,15 @@ no contador `satelite_fora_da_tabela`.
 |---|---|---|
 | `silver_focos_streaming` | `data_deteccao` (filtro obrigatório) | Foco válido |
 | `streaming_erros` | `DATE(recebido_em)` | Mensagem rejeitada |
-| `gold_agregados_janela` | `DATE(inicio_janela)` (filtro obrigatório) | Janela de 1 h e estado |
+| `gold_agregados_janela` | `DATE(inicio_janela)` (filtro obrigatório) | Janela de 1 h, estado e gravação (vale a mais recente) |
 
-O esquema da `silver_focos_streaming` é idêntico ao da `silver_focos_historico`
-As 16 colunas do INPE tipadas, mais `data_deteccao`, `origem`,
+Na `gold_agregados_janela`, o Dataflow grava o total de uma janela de novo
+sempre que chegam focos atrasados dela, e mais uma vez ao drenar o job. Para
+ler, fique com a linha de `calculado_em` mais recente de cada janela e estado:
+`QUALIFY ROW_NUMBER() OVER (PARTITION BY inicio_janela, estado ORDER BY calculado_em DESC) = 1`.
+
+O esquema da `silver_focos_streaming` é idêntico ao da `silver_focos_historico`:
+as 16 colunas do INPE tipadas, mais `data_deteccao`, `origem`,
 `publicado_em` e `ingerido_em`.
 
 
