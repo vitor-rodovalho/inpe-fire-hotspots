@@ -2,3 +2,6 @@
 # O Dataflow usa automaticamente a mesma versão do Beam e do Python de quem
 # subiu o job. Para congelar a versão que funcionou: pip freeze > requirements.lock.txt
 apache-beam[gcp]>=2.61.0,<3.0.0
+
+setuptools>=68
+build>=1.0
