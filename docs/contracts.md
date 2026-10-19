@@ -103,3 +103,32 @@ As 16 colunas do INPE tipadas, mais `data_deteccao`, `origem`,
 
 Depois de mudar uma delas, reinicie o job (`pipeline/drain.sh` e
 `pipeline/deploy.sh`).
+
+
+## API REST (Cloud Run, `api/`)
+
+**Entrada de `POST /predict`:** as variáveis conhecidas no momento da
+detecção, com os nomes da Silver. O FRP não entra, então a API aceita foco real
+ou hipotético. Campos a mais são ignorados.
+
+```json
+{"satelite": "NOAA-20", "data_hora_gmt": "2026-10-14T18:42:00Z", "lat": -9.51, "lon": -56.20,
+ "bioma": "Amazônia", "numero_dias_sem_chuva": 21, "precipitacao": 0.0, "risco_fogo": 0.97}
+```
+
+**Saída:** `{"probabilidade_intenso": 0.81, "intenso": true, "versao_modelo": "foco_intenso_v1"}`.
+`GET /health` devolve `{"status": "ok", "versao_modelo": "..."}`.
+
+Erro 422 para satélite fora de `satelites`, coordenada fora do Brasil,
+`risco_fogo` fora de 0 a 1 ou bioma desconhecido. Clima vazio ou `-999` vira
+nulo, como na Silver.
+
+**Variáveis do modelo (iguais na Gold e na API):** `lat`, `lon`,
+`hora = EXTRACT(HOUR FROM data_hora_gmt)`, `mes = EXTRACT(MONTH FROM data_hora_gmt)`
+(em GMT), `tipo_orbita` (de `satelites`), `bioma`, `numero_dias_sem_chuva`,
+`precipitacao`, `risco_fogo`.
+
+**Pacote do modelo** em `gs://<BUCKET>/modelos/foco_intenso/<versao>/`:
+`manifest.json` (versão, arquivo, limiar de decisão, ordem e codificação das
+variáveis), `satelites.json` e o arquivo do XGBoost. Detalhes em
+[api/README.md](../api/README.md#pacote-do-modelo).
