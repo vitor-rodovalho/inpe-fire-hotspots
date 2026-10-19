@@ -38,8 +38,8 @@ notebooks/                 # Exploração e evidências; não roda nada em produ
 docs/                      # contracts.md, diagrama, perfil dos dados, figuras e evidências
 ```
 
-Ainda não existem: `sql/silver/`, `sql/gold/`, `sql/modelo/`, `model/`,
-`api/` e `scripts/`. Cada frente cria a sua pasta ao começar.
+Ainda não existem: `sql/silver/`, `sql/gold/`, `sql/modelo/`, `model/` e
+`scripts/`. Cada frente cria a sua pasta ao começar.
 
 ## Configuração
 
@@ -83,6 +83,10 @@ bash sql/run_sql.sh sql/bronze/04_data_profile.sql   # Versão rápida, só text
 
 # 5. Replay dos diários para o Pub/Sub (com o job do Dataflow ligado)
 bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-03
+
+# 6. API no Cloud Run: veja api/README.md
+python api/modelo_provisorio/treinar.py && bash api/publicar_modelo.sh
+bash api/deploy.sh
 ```
 
 Cada script de `infra/` pode ser rodado de novo sem efeito colateral.

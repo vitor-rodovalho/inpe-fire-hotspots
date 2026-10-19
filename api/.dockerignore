@@ -1,0 +1,12 @@
+# Só requirements.txt e app/ entram na imagem
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+modelo_local/
+modelo_provisorio/
+*.md
+*.sh
+pytest.ini
+requirements-dev.txt
