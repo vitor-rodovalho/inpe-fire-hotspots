@@ -38,8 +38,6 @@ notebooks/                 # Exploração e evidências; não roda nada em produ
 docs/                      # contracts.md, diagrama, perfil dos dados, figuras e evidências
 ```
 
-Ainda não existem: `sql/silver/`, `sql/gold/`, `sql/modelo/`, `model/`,
-`api/` e `scripts/`. Cada frente cria a sua pasta ao começar.
 
 ## Configuração
 

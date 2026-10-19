@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS `{{DATASET}}.limiar_frp` (
   percentil INT64 OPTIONS (description = 'Percentil usado no cálculo, por exemplo 90'),
   calculado_em TIMESTAMP
 )
-OPTIONS (description = 'Limiar de FRP por tipo de órbita (Frente C)');
+OPTIONS (description = 'Limiar de FRP por tipo de órbita');

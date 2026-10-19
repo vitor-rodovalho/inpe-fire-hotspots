@@ -1,6 +1,6 @@
-# Contratos entre as frentes
+# Contratos
 
-Nomes e formatos que mais de uma frente usa. Mudar qualquer item exige avisar
+Nomes e formatos utilizados pelo projeto. Mudar qualquer item exige avisar
 quem consome. Os valores concretos ficam em `config.env`.
 
 ## Recursos na GCP

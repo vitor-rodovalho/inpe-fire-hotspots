@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ativa as APIs usadas por todas as frentes do projeto.
+# Ativa as APIs usadas por todas as partes do projeto.
 # Uso: bash infra/02_enable_apis.sh
 source "$(dirname "$0")/common.sh"
 

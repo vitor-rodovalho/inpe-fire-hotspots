@@ -1,4 +1,4 @@
-"""Testes da conta feita em cada janela e estado (etapa B4 do plano)."""
+"""Testes da conta feita em cada janela e estado."""
 
 from typing import Any
 
