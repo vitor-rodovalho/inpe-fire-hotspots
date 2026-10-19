@@ -131,15 +131,20 @@ em `-invalida` nos atributos, o que permite separá-la numa consulta.
 
 ### Nunca voltar no tempo
 
-O Dataflow agrupa os focos em janelas de 1 hora pelo horário da detecção. Um
-foco com horário anterior a uma janela já fechada é descartado dos agregados.
-Por isso o replay guarda o último horário publicado em
+O Dataflow só lembra por 10 minutos os ids que já viu. Se o replay repetir um
+período depois disso, os mesmos focos entram de novo na Silver e somam de novo
+nos agregados. Por isso o replay guarda o último horário publicado em
 `ingestion/.replay_state.json` e se recusa a começar antes dele. Para repetir
-um período (por exemplo, num novo ensaio), reinicie o job e use
-`--permitir-voltar`:
+um período (por exemplo, num novo ensaio), drene o job, recrie as tabelas do
+streaming, suba o job de novo e use `--permitir-voltar`:
 
 ```bash
-bash pipeline/drain.sh && bash pipeline/deploy.sh
+bash pipeline/drain.sh                    # Espere "Drenado" no console antes de seguir
+bq rm -f -t focos.silver_focos_streaming
+bq rm -f -t focos.streaming_erros
+bq rm -f -t focos.gold_agregados_janela
+bash sql/run_sql.sh sql/streaming/*.sql   # Recria as 3 tabelas vazias
+bash pipeline/deploy.sh
 bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --permitir-voltar
 ```
 

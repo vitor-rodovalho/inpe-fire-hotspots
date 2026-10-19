@@ -15,9 +15,11 @@ nenhum dado se perde. A cópia vai para streaming_erros com o id terminado em
 "-invalida".
 
 O replay nunca volta no tempo sozinho: ele guarda o último horário publicado e
-se recusa a começar antes dele, porque o Dataflow descartaria esses focos das
-janelas já fechadas. Para repetir um período, reinicie o job do Dataflow
-(pipeline/drain.sh e pipeline/deploy.sh) e use --permitir-voltar.
+se recusa a começar antes dele, porque, passados os 10 minutos da deduplicação
+do Dataflow, esses focos entrariam de novo na Silver e nos agregados. Para
+repetir um período, drene o job (pipeline/drain.sh), recrie as tabelas de
+sql/streaming/, suba o job de novo (pipeline/deploy.sh) e use --permitir-voltar.
+
 
 Com --saida ARQUIVO.jsonl, nada vai para o Pub/Sub: as mensagens são gravadas
 num arquivo, que pipeline/run_local.sh --offline lê (teste sem nuvem).
@@ -186,9 +188,9 @@ def conferir_volta_no_tempo(primeiro_instante, permitir_voltar) -> None:
         return
     sys.exit(
         f"ERRO: este período começa em {primeiro_instante:%Y-%m-%d %H:%M}, antes do último foco já publicado "
-        f"({ultimo:%Y-%m-%d %H:%M}). O Dataflow descartaria esses focos das janelas.\n"
-        "Escolha um período posterior, ou reinicie o job (pipeline/drain.sh e pipeline/deploy.sh) "
-        "e rode de novo com --permitir-voltar."
+        f"({ultimo:%Y-%m-%d %H:%M}). Esses focos entrariam de novo na Silver e nos agregados.\n"
+        "Escolha um período posterior, ou drene o job, recrie as tabelas de sql/streaming/, "
+        "suba o job de novo e rode com --permitir-voltar."
     )
 
 

@@ -1,6 +1,9 @@
 -- =============================================================================
 -- Agregados calculados pelo Dataflow enquanto os focos chegam: uma linha por
 -- janela de 1 hora (pelo horário da DETECÇÃO, não da chegada) e por estado.
+-- Quando chegam focos atrasados, o Dataflow grava o total da janela de novo,
+-- então uma janela e estado pode ter mais de uma linha: vale a de
+-- calculado_em mais recente.
 --
 -- Executar: bash sql/run_sql.sh sql/streaming/03_gold_agregados_janela.sql
 -- =============================================================================

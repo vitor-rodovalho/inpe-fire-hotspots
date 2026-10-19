@@ -1,6 +1,7 @@
 -- Confere os agregados do Dataflow contra a mesma conta feita em SQL sobre a
--- Silver de streaming. "situacao" = 'ok' quando batem.
--- Só compara janelas que o Dataflow já fechou.
+-- Silver de streaming (etapa B4 do plano). "situacao" = 'ok' quando batem.
+-- Só compara janelas que o Dataflow já gravou, pela linha mais recente de cada
+-- janela e estado (o total é gravado de novo quando chegam focos atrasados).
 -- Executar: bash sql/run_sql.sh sql/demo/04_check_aggregates.sql
 
 WITH silver_sem_repeticao AS (
@@ -22,6 +23,7 @@ pelo_dataflow AS (
   SELECT inicio_janela, estado, qtd_focos, qtd_sem_frp
   FROM `{{DATASET}}.gold_agregados_janela`
   WHERE DATE(inicio_janela) >= DATE '{{DATA_CORTE}}'
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY inicio_janela, estado ORDER BY calculado_em DESC) = 1
 )
 SELECT
   d.inicio_janela,

@@ -40,10 +40,28 @@ diferentes de detecção e não significaria nada. Com o horário da detecção
 (atributo `ts_evento`), uma janela é uma hora real de fogo, a qualquer
 velocidade de replay.
 
-Consequência: o replay não pode voltar no tempo com o job ligado. Focos com
-horário anterior a uma janela já fechada chegam "atrasados" e o Beam os descarta
-dos agregados (na Silver eles entram normalmente). Antes de cada ensaio,
-reinicie o job (`drain.sh` e `deploy.sh`).
+
+## Focos atrasados
+
+O Dataflow decide quando gravar uma janela pela marca d'água (watermark), a
+estimativa de "já chegou tudo que foi detectado até este horário". Com o
+Pub/Sub, quando a fila está vazia, a marca d'água acompanha o relógio real.
+Como o replay publica horários do passado, para o Dataflow quase todo foco
+chega depois de a janela dele ter fechado.
+
+Por isso a janela aceita focos com até 365 dias de atraso
+(`ATRASO_PERMITIDO_SEGUNDOS` em `main.py`). Um minuto depois do primeiro foco
+atrasado de uma janela (`ESPERA_GRAVACAO_ATRASADOS_SEGUNDOS`), ela é gravada
+com o total acumulado. Se chegarem mais focos dela depois, ela é gravada de
+novo, com o novo total, e ao drenar o job pode ser gravada uma última vez.
+Então uma janela e estado pode ter mais de uma linha na
+`gold_agregados_janela`, e vale a de `calculado_em` mais recente, como fazem
+as consultas 03 e 04 de `sql/demo/`.
+
+O replay continua sem poder voltar no tempo com o job ligado, agora por causa
+da Silver: depois dos 10 minutos da deduplicação, um foco repetido entra de
+novo nela e nos agregados. Antes de repetir um período, drene o job, recrie as
+tabelas de `sql/streaming/` e suba o job de novo.
 
 
 ## Como rodar
@@ -109,6 +127,6 @@ Em `sql/demo/`:
 
 - `01_streaming_per_minute.sql`: focos gravados por minuto de ingestão.
 - `02_streaming_latency.sql`: latência `publicado_em -> ingerido_em`.
-- `03_recent_aggregates.sql`: últimas janelas fechadas.
+- `03_recent_aggregates.sql`: últimas janelas gravadas (a linha mais recente de cada janela e estado).
 - `04_check_aggregates.sql`: agregados do Dataflow contra a mesma conta em SQL.
 - `05_errors_by_reason.sql`: mensagens rejeitadas por motivo.

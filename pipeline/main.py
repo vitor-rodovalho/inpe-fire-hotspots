@@ -5,7 +5,7 @@ Lê os focos publicados no Pub/Sub pelo replay e, para cada um:
   2. Descarta repetições (o Pub/Sub entrega cada mensagem pelo menos uma vez);
   3. Grava na silver_focos_streaming;
   4. Agrupa em janelas de 1 hora pelo horário da detecção e grava, por estado,
-     os agregados em gold_agregados_janela.
+     os agregados em gold_agregados_janela, aceitando focos atrasados.
 
 Rodar na máquina (DirectRunner):  bash pipeline/run_local.sh
 Rodar sem nuvem nenhuma:          bash pipeline/run_local.sh --offline
@@ -29,6 +29,7 @@ from apache_beam.metrics.metric import MetricsFilter
 from apache_beam.options.pipeline_options import PipelineOptions, StandardOptions
 from apache_beam.transforms import window
 from apache_beam.transforms.deduplicate import DeduplicatePerKey
+from apache_beam.transforms.trigger import AccumulationMode, AfterProcessingTime, AfterWatermark
 from apache_beam.utils.timestamp import Duration
 from focos_stream import cleaning, references
 from focos_stream.beam_transforms import (
@@ -61,7 +62,11 @@ ATRIBUTO_TEMPO_EVENTO = "ts_evento"  # Horário da detecção, enviado pelo repl
 
 JANELA_SEGUNDOS = 60 * 60  # Janelas fixas de 1 hora
 DEDUPLICACAO_SEGUNDOS = 10 * 60  # Por quanto tempo um id já visto é lembrado
-ATRASO_PERMITIDO_SEGUNDOS = 0  # Focos que chegam depois de a janela fechar são descartados
+# O replay publica horários do passado, e a marca d'água do Pub/Sub acompanha o
+# relógio real: para o Dataflow, quase todo foco chega atrasado. Até este atraso,
+# o foco ainda entra nos agregados. Depois dele, é descartado
+ATRASO_PERMITIDO_SEGUNDOS = 365 * 24 * 60 * 60
+ESPERA_GRAVACAO_ATRASADOS_SEGUNDOS = 60  # Depois do 1º foco atrasado de uma janela, espera isso para gravá-la
 # =============================================================================
 
 
@@ -115,9 +120,14 @@ def construir_pipeline(p, entrada, gravar, satelites, limiares):
 
     (
         focos
+        # A janela é gravada quando a marca d'água passa do fim dela e, para cada
+        # leva de focos atrasados, de novo com o total acumulado. Por isso uma
+        # janela e estado pode ter mais de uma linha; vale a mais recente.
         | "Janela1h"
         >> beam.WindowInto(
             window.FixedWindows(JANELA_SEGUNDOS),
+            trigger=AfterWatermark(late=AfterProcessingTime(ESPERA_GRAVACAO_ATRASADOS_SEGUNDOS)),
+            accumulation_mode=AccumulationMode.ACCUMULATING,
             allowed_lateness=Duration(seconds=ATRASO_PERMITIDO_SEGUNDOS),
         )
         | "ChavePorEstado" >> beam.Map(chave_por_estado)

@@ -89,7 +89,7 @@ no contador `satelite_fora_da_tabela`.
 | `gold_agregados_janela` | `DATE(inicio_janela)` (filtro obrigatório) | Janela de 1 h e estado |
 
 O esquema da `silver_focos_streaming` é idêntico ao da `silver_focos_historico`
-(Frente A): as 16 colunas do INPE tipadas, mais `data_deteccao`, `origem`,
+As 16 colunas do INPE tipadas, mais `data_deteccao`, `origem`,
 `publicado_em` e `ingerido_em`.
 
 
