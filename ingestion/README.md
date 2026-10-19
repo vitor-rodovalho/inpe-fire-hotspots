@@ -49,7 +49,9 @@ tamanho dele no INPE mudou.
 Se o INPE não responder, o script tenta de novo até 4 vezes, com espera
 crescente entre as tentativas. Um arquivo que ainda assim falhar aparece como
 `[falhou]` e os outros continuam. Depois de 3 falhas seguidas, o script para,
-porque o INPE provavelmente está fora do ar. Nos dois casos, basta rodar o
+porque o INPE provavelmente está fora do ar. O envio ao bucket vai em pedaços
+de 8 MB, e um pedaço que falha é reenviado sozinho. Se a conexão continuar
+caindo, o arquivo também aparece como [falhou]. Em qualquer caso, basta rodar o
 mesmo comando de novo mais tarde. Se o INPE publicar um arquivo zipado, o script
 extrai o CSV antes de enviar. Ao final, ele reescreve
 `gs://<BUCKET>/raw/manifesto/arquivos.csv` com o número de linhas de cada

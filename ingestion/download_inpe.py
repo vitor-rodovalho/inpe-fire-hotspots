@@ -66,7 +66,9 @@ EXTENSOES_TENTADAS = (".csv", ".zip")  # O INPE às vezes publica zipado
 
 TIMEOUT_CONSULTA_S = 30  # Só confere se o arquivo existe e o tamanho dele
 TIMEOUT_DOWNLOAD_S = 180
-TENTATIVAS_REDE = 4  # O servidor do INPE às vezes não responde, então tenta de novo antes de desistir
+TIMEOUT_ENVIO_S = 120  # Prazo de cada pedaço enviado ao bucket
+TAMANHO_PEDACO_ENVIO = 8 * 1024 * 1024  # 8 MB por pedaço enviado ao bucket
+TENTATIVAS_REDE = 4  # Tentativas por arquivo quando o INPE não responde (mínimo 1)
 ESPERA_INICIAL_S = 5  # Espera antes da 2ª tentativa, então dobra a cada nova tentativa
 LIMITE_FALHAS_SEGUIDAS = 3  # Arquivos seguidos que falham antes de concluir que o INPE está fora do ar
 TAMANHO_BLOCO = 1024 * 1024
@@ -107,10 +109,16 @@ def listar_dias(inicio, fim) -> list[Any]:
 class DestinoBucket:
     """Arquivos no Cloud Storage; os metadados ficam no próprio objeto."""
 
-    def __init__(self, nome_bucket) -> None:
-        from google.cloud import storage  # Importado aqui: o destino local não precisa da nuvem
+    def __init__(self, nome_bucket):
+        # Importados aqui pois o destino local não precisa da nuvem
+        import requests
+        from google.cloud import storage
+        from google.cloud.storage.retry import DEFAULT_RETRY
 
         self._cliente = storage.Client(project=PROJECT_ID or None)
+        # Sem isso, a biblioteca não repete um envio que falha no meio
+        self._repeticao_envio = DEFAULT_RETRY
+        self._erros_envio = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
         self._bucket = self._cliente.bucket(nome_bucket)
         self.descricao = f"gs://{nome_bucket}"
 
@@ -126,9 +134,20 @@ class DestinoBucket:
         return blob.metadata or {}
 
     def enviar(self, arquivo_local, caminho, metadados) -> None:
-        blob = self._bucket.blob(caminho)
+        """
+        Envia o arquivo em pedaços de TAMANHO_PEDACO_ENVIO.
+
+        Um pedaço que falha é reenviado sozinho, com espera crescente. Se a conexão
+        continuar falhando, o erro vira ConnectionError, e o arquivo aparece como [falhou].
+        """
+        blob = self._bucket.blob(caminho, chunk_size=TAMANHO_PEDACO_ENVIO)
         blob.metadata = metadados
-        blob.upload_from_filename(arquivo_local, content_type="text/csv")
+        try:
+            blob.upload_from_filename(
+                arquivo_local, content_type="text/csv", timeout=TIMEOUT_ENVIO_S, retry=self._repeticao_envio
+            )
+        except self._erros_envio as erro:
+            raise ConnectionError(f"envio ao bucket falhou: {erro}") from erro
 
     def listar_csvs(self, pasta) -> list[tuple[str, Any, Any | dict[Any, Any]]]:
         """[(uri, bytes, metadados)] dos CSVs de uma pasta."""
