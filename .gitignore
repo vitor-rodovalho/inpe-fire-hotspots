@@ -25,6 +25,7 @@ dados/
 # Notebooks: checkpoints e saídas geradas
 .ipynb_checkpoints/
 profile_output/
+streaming_output/
 
 # Estado do replay (último horário publicado)
 ingestion/.replay_state.json
