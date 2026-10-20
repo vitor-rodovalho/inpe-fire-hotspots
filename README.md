@@ -30,6 +30,7 @@ sql/
   gold/                    # gold_treino, vw_previsoes, vw_monitoramento
   modelo/                  # CREATE MODEL, ML.EVALUATE, EXPORT MODEL
   demo/                    # Consultas usadas na demonstração
+  evidence/                # Evidências do streaming (notebook 02)
 pipeline/                  # Apache Beam / Dataflow
 model/                     # Exploração, export e arquivo de paridade
 api/                       # FastAPI, Dockerfile, requirements.txt, deploy.sh, testes
@@ -81,6 +82,10 @@ bash sql/run_sql.sh sql/bronze/04_data_profile.sql   # Versão rápida, só text
 
 # 5. Replay dos diários para o Pub/Sub (com o job do Dataflow ligado)
 bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-03
+
+# 6. Evidências do streaming (depois do replay)
+bash sql/run_sql.sh sql/evidence/*.sql               # Versão rápida, só texto
+# Versão completa, com gráficos e resumo: notebooks/02_streaming_evidence.ipynb
 ```
 
 Cada script de `infra/` pode ser rodado de novo sem efeito colateral.

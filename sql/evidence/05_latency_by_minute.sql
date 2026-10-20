@@ -1,8 +1,9 @@
 -- Evidência: latência entre a publicação no Pub/Sub (publicado_em) e a gravação
 -- na Silver pelo Dataflow (ingerido_em), em segundos, por minuto de publicação
 -- (UTC, 3 horas à frente de Brasília). A primeira linha, com o minuto vazio, é
--- o total do período. Com o job já em execução, a mediana fica em poucos
--- segundos. Nos minutos em que o job ainda subia, os focos esperaram na fila.
+-- o total do período. Se o replay publicar mais rápido do que o job processa,
+-- os focos esperam na fila do Pub/Sub e a latência cresce ao longo do replay;
+-- nesse caso, ela mede a fila, e não o pipeline.
 -- Para a latência só dos últimos 60 minutos, use sql/demo/02_streaming_latency.sql.
 -- Executar: bash sql/run_sql.sh sql/evidence/05_latency_by_minute.sql
 
