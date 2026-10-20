@@ -42,10 +42,10 @@ docs/                      # contracts.md, diagrama, perfil dos dados, figuras e
 
 ## Configuração
 
-Tudo que muda de um ambiente para outro está em `config.env`. Para reproduzir
+Tudo que é alterado de um ambiente para outro está em `config.env`. Para reproduzir
 em outra conta GCP:
 
-1. Edite `config.env`: no mínimo `PROJECT_ID`, que precisa ser único no
+1. Edite `config.env`: no mínimo `PROJECT_ID`, que deve ser único no
    mundo. O bucket (`${PROJECT_ID}-data`) e o orçamento seguem o ID sozinhos.
 2. Crie o arquivo pessoal, que não vai para o GitHub:
    ```bash
@@ -53,12 +53,12 @@ em outra conta GCP:
    # preencha BILLING_ACCOUNT_ID (gcloud billing accounts list) e EMAILS_EQUIPE
    ```
 
-Os scripts `.sh` carregam os dois arquivos sozinhos. Para usar as variáveis no
+Os scripts `.sh` carregam os dois arquivos automaticamente. Para usar as variáveis no
 terminal: `set -a; source config.env; set +a`.
 
 ## Passo a passo
 
-Recomendado rodar no **Cloud Shell**, que já tem `gcloud`, `bq` e Python.
+Recomendado executar no **Cloud Shell**, que possui `gcloud`, `bq` e Python.
 
 ```bash
 # 1. Ambiente: projeto, APIs, orçamento, bucket, dataset, contas de serviço, Pub/Sub
@@ -88,23 +88,23 @@ bash sql/run_sql.sh sql/evidence/*.sql               # Versão rápida, só text
 # Versão completa, com gráficos e resumo: notebooks/02_streaming_evidence.ipynb
 ```
 
-Cada script de `infra/` pode ser rodado de novo sem efeito colateral.
+Cada script de `infra/` pode ser executado novamente sem efeito colateral.
 
-### Teste sem nuvem
+### Teste local
 
-O download, o replay e o pipeline também rodam só na máquina (WSL, Linux, Mac
+O download, o replay e o pipeline também executam só na máquina (WSL, Linux, Mac
 ou Cloud Shell), gravando tudo na pasta `dados/`, que não vai para o Git. Não
 precisa de conta GCP e não deixa nada no bucket, no Pub/Sub ou no BigQuery.
 Passo a passo em [ingestion/README.md](ingestion/README.md#teste-sem-nuvem).
 
 ## Custos e cuidados
 
-| Item | Quando gasta | Como desligar |
+| Item | Quando gasta | Como desativar |
 |---|---|---|
-| Dataflow | Enquanto o job estiver ligado (cerca de US$ 0,20 a 0,30/h) | `bash pipeline/drain.sh` |
+| Dataflow | Enquanto o job estiver ativo (cerca de US$ 0,20 a 0,30/h) | `bash pipeline/drain.sh` |
 | Cloud Run | Por requisição. 1 instância mínima só no dia da apresentação | Voltar para 0 instâncias |
-| BigQuery | Por bytes lidos. Tabelas particionadas com filtro obrigatório | Usar `DRY_RUN=1` antes de consultas grandes |
+| BigQuery | Por bytes lidos. Tabelas particionadas com filtro obrigatório | Usar `DRY_RUN=1` antes de consultas massivas |
 | Cloud Storage | Alguns GB de CSV | Apagar `raw/` depois da entrega |
 
 O orçamento (`infra/03_budget.sh`) avisa por e-mail em 50%, 90% e 100% de
-`ORCAMENTO_USD`, mas **não desliga nada sozinho**.
+`ORCAMENTO_USD`, mas **não desativa nada sozinho**.
