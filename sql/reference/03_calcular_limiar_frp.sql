@@ -4,7 +4,7 @@
 -- O limiar é o percentil 90 do FRP de cada tipo de órbita, só nos meses de
 -- treino (antes de INICIO_TESTE), para que o mês de teste não influencie a
 -- regra. É por órbita porque sensores diferentes medem energias diferentes
--- por pixel. O INPE não tem escala oficial de intensidade: o limiar é nosso.
+-- por pixel. O INPE não tem escala oficial de intensidade: o limiar é próprio.
 --
 -- O notebook 01 chegou a 202,2 MW (geoestacionário) e 28,4 MW (polar) com
 -- APPROX_QUANTILES; aqui o cálculo é exato, então o valor pode mudar na
@@ -32,13 +32,12 @@ JOIN `{{DATASET}}.satelites` AS s USING (satelite)
 WHERE f.data_deteccao < INICIO_TESTE
   AND f.frp IS NOT NULL;
 
--- Troca numa transação, para quem ler a tabela nunca a encontrar vazia
-BEGIN TRANSACTION;
+-- Troca os valores. Entre o DELETE e o INSERT a tabela fica vazia por um
+-- instante, o que só importa se o job do Dataflow subir bem nesse momento
 DELETE FROM `{{DATASET}}.limiar_frp` WHERE TRUE;
 INSERT INTO `{{DATASET}}.limiar_frp` (tipo_orbita, limiar, percentil, calculado_em)
 SELECT tipo_orbita, limiar, 90, CURRENT_TIMESTAMP()
 FROM calculado;
-COMMIT TRANSACTION;
 
 -- Resultado, para conferir
 SELECT l.tipo_orbita, ROUND(l.limiar, 1) AS limiar_mw, l.percentil, c.focos_com_frp, l.calculado_em

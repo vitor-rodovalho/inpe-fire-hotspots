@@ -9,8 +9,7 @@
 --     obrigatório ausente, número ou data que não se converte, coordenada fora
 --     do Brasil e risco_fogo fora de 0 a 1. O motivo usa o mesmo texto do Beam;
 --   - data_deteccao = DATE(data_hora_gmt), que é a coluna de partição;
---   - remove repetições por id (o perfil mostrou que o id é único, então é só
---     uma proteção). Detecções do mesmo fogo por satélites diferentes ficam.
+--   - remove repetições por id. Detecções do mesmo fogo por satélites diferentes ficam.
 --
 -- Mesmo esquema da silver_focos_streaming (sql/streaming/01), para que as duas
 -- se unam na vw_focos_unificada. A tabela é recriada inteira: rodar de novo

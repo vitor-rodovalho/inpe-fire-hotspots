@@ -14,14 +14,3 @@ SELECT
 FROM `{{DATASET}}.vw_focos_unificada`
 GROUP BY origem
 ORDER BY primeiro_dia;
-
--- Streaming nos últimos dias de detecção, que é onde o replay está gravando
-SELECT
-  data_deteccao,
-  COUNT(*) AS focos,
-  COUNTIF(frp IS NULL) AS sem_frp,
-  MAX(ingerido_em) AS ultima_ingestao
-FROM `{{DATASET}}.vw_focos_unificada`
-WHERE data_deteccao >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)
-GROUP BY data_deteccao
-ORDER BY data_deteccao DESC;

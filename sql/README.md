@@ -50,6 +50,15 @@ são recriadas inteiras, e as tabelas do streaming usam `CREATE TABLE IF NOT
 EXISTS`, então nunca perdem o que o Dataflow gravou.
 
 
+## Teste com carga menor
+
+`DATASET_TESTE=focos_teste` manda tudo para outro dataset, sem tocar no `focos`.
+`sql/teste/01_amostra_bronze.sql` copia uma amostra da Bronze (ago e set/2026,
+10% dos focos) e a tabela `satelites` para lá, e o resto da ordem acima roda
+sobre ela. O passo a passo, com os comandos e o que conferir em cada etapa, está
+em [docs/passo_a_passo_batch.md](../docs/passo_a_passo_batch.md).
+
+
 ## Camadas
 
 **Bronze (`bronze/`).** Os CSVs mensais como vieram, tudo como texto, com o
@@ -85,6 +94,7 @@ a gravação mais recente de cada janela (veja `docs/contracts.md`).
 |---|---|---|
 | `demo/` | `01` a `05` | Streaming: focos por minuto, latência, agregados, conferência da Gold e erros |
 | `demo/` | `06_count_by_origin.sql` | Focos por origem na view unificada |
+| `demo/` | `07_streaming_last_days.sql` | Focos de streaming por dia, nos últimos 3 dias |
 | `evidence/` | `01` a `05` | Evidências do streaming (notebook 02) |
 | `evidence/` | `06_bytes_one_day.sql`, `07_bytes_whole_period.sql` | Bytes lidos com e sem filtro de data (rodar com `DRY_RUN=1`) |
 
