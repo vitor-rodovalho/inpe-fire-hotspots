@@ -1,10 +1,11 @@
 -- =============================================================================
 -- Teste com carga menor: copia uma amostra da Bronze para um dataset de teste.
 --
--- Serve para rodar a Silver, o limiar, a view e a Gold inteiras, em segundos e
--- por centavos, antes de rodar no dataset real. A amostra tem dois meses, para
+-- Serve para rodar a Silver, a view e a Gold inteiras, em segundos e por
+-- centavos, antes de rodar no dataset real. A amostra tem dois meses, para
 -- manter a divisão por tempo: ago/2026 (treino) e set/2026 (teste), e só um em
 -- cada UM_EM_CADA focos, escolhido pelo id (a mesma amostra a cada execução).
+-- As referências (satelites e limiar_frp) são copiadas inteiras do dataset real.
 --
 -- Só roda no modo teste. Sem DATASET_TESTE, o ASSERT abaixo para o script, para
 -- que a Bronze real nunca seja substituída pela amostra.
@@ -36,6 +37,13 @@ CREATE OR REPLACE TABLE `{{DATASET}}.satelites`
 OPTIONS (description = 'Cópia de satelites para o teste da Frente A')
 AS
 SELECT * FROM `{{DATASET_ORIGEM}}.satelites`;
+
+-- O limiar gravado pela Frente C (model/exploracao_limiar.py), calculado sobre
+-- todos os meses de treino, e não sobre a amostra
+CREATE OR REPLACE TABLE `{{DATASET}}.limiar_frp`
+OPTIONS (description = 'Cópia de limiar_frp para o teste da Frente A')
+AS
+SELECT * FROM `{{DATASET_ORIGEM}}.limiar_frp`;
 
 -- Resultado, para conferir
 SELECT

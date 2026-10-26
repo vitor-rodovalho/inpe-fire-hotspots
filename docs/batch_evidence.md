@@ -29,14 +29,9 @@ Fonte: o resumo final de `sql/silver/01_silver_focos_historico.sql` e a conferê
 | `sql/evidence/07_bytes_whole_period.sql` | nenhum (todo o período) | `(preencher)` |
 
 ## Limiar de FRP
-Fonte: `sql/reference/03_calcular_limiar_frp.sql` (percentil 90, meses de treino).
-
-| Órbita | Limiar (MW) | Focos com FRP no treino |
-|---|---|---|
-| geoestacionario | `(preencher)` | `(preencher)` |
-| polar | `(preencher)` | `(preencher)` |
-
-O notebook 01, com `APPROX_QUANTILES`, deu 202,2 MW e 28,4 MW.
+Gravado pela Frente C (`model/exploracao_limiar.py --gravar`), percentil 90 dos
+meses de treino: 202,1 MW (geoestacionário) e 28,4 MW (polar). Detalhes em
+[model/README.md](../model/README.md).
 
 ## View unificada
 Fonte: `sql/demo/06_count_by_origin.sql`.
@@ -56,6 +51,7 @@ Fonte: o resumo final de `sql/gold/01_gold_treino.sql`.
 | teste | geoestacionario | `(preencher)` | `(preencher)` | `(preencher)` |
 | teste | polar | `(preencher)` | `(preencher)` | `(preencher)` |
 
-No treino, os positivos devem ficar perto de 10% em cada órbita, porque o limiar
-é o percentil 90 desses mesmos meses. A diferença no teste mostra o quanto
-setembro foi diferente.
+No total, o esperado é o mesmo da etapa C2 da Frente C: 2.530.560 focos de
+treino (10,0% positivos) e 756.172 de teste (10,8%). No treino, os positivos
+ficam perto de 10% porque o limiar é o percentil 90 desses mesmos meses; a
+diferença no teste mostra o quanto setembro foi diferente.

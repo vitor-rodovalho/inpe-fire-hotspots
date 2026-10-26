@@ -74,8 +74,8 @@ os arquivos. Com a Bronze carregada, gere as tabelas de referência:
 bash sql/run_sql.sh sql/reference/01_satelites.sql sql/reference/02_limiar_frp.sql
 ```
 
-O limiar (`sql/reference/03_calcular_limiar_frp.sql`) só roda depois da
-Silver histórica. A ordem completa está em [sql/README.md](../sql/README.md).
+O limiar é calculado e gravado pela Frente C (`model/exploracao_limiar.py
+--gravar`). A ordem completa está em [sql/README.md](../sql/README.md).
 
 A tabela `satelites` sai da própria Bronze: cada satélite que aparece nos CSVs
 é classificado como geoestacionário ou polar pela quantidade de horas com focos
