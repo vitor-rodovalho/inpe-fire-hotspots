@@ -71,8 +71,11 @@ A carga está certa quando a coluna `situacao` da conferência é `ok` em todos
 os arquivos. Com a Bronze carregada, gere as tabelas de referência:
 
 ```bash
-bash sql/run_sql.sh sql/reference/*.sql
+bash sql/run_sql.sh sql/reference/01_satelites.sql sql/reference/02_limiar_frp.sql
 ```
+
+O limiar é calculado e gravado pela Frente C (`model/exploracao_limiar.py
+--gravar`). A ordem completa está em [sql/README.md](../sql/README.md).
 
 A tabela `satelites` sai da própria Bronze: cada satélite que aparece nos CSVs
 é classificado como geoestacionário ou polar pela quantidade de horas com focos
