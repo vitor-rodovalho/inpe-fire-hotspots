@@ -4,12 +4,12 @@ Frente C: exploração, limiar de "foco intenso", modelo e exportação.
 
 ## C1. Exploração e limiar
 
-`exploracao_limiar.py` lê da Bronze os meses de treino (out/2025 a ago/2026),
-trata vazio e -999 como nulo no FRP e mostra, por tipo de órbita e por
-satélite:
+`exploracao_limiar.py` lê da Silver histórica (`focos.silver_focos_historico`,
+A5) os meses de treino (out/2025 a ago/2026), com o FRP já limpo (vazio e -999
+como nulo), e mostra, por tipo de órbita e por satélite:
 
-1. a parcela de focos sem FRP (complementa o resumo de A1 em
-   `docs/data_profile.md`);
+1. a parcela de focos sem FRP, ao lado da do resumo de A1
+   (`docs/data_profile.md`, 1,7% nos 12 meses);
 2. a distribuição do FRP (percentis 50, 75, 90, 95 e 99 e o máximo);
 3. o limiar proposto por tipo de órbita e quantos focos de cada satélite ele
    marcaria como intensos.
@@ -53,6 +53,12 @@ Os valores batem com os candidatos do notebook 01 (202,2 e 28,4 MW), que usou
 `APPROX_QUANTILES`; a diferença de 0,1 MW vem do cálculo exato no pandas. O
 valor exato com todas as casas está em `focos.limiar_frp`.
 
+O limiar foi gravado em 20/10 a partir da Bronze, com as mesmas regras de
+limpeza, antes de a Silver histórica existir. A Silver tem os mesmos 3.342.337
+focos da Bronze, sem descartes, então ler dela dá os mesmos valores: rode o
+script sem `--gravar` para conferir, e só grave de novo se algo mudar (a Gold de
+treino e o Dataflow dependem dessa tabela).
+
 ### Observações da exploração
 
 Meses de treino (out/2025 a ago/2026), focos com FRP:
@@ -78,27 +84,27 @@ Meses de treino (out/2025 a ago/2026), focos com FRP:
 <!-- C2: início (gerado por model/sinal_modelo.py) -->
 ## C2. Sinal do modelo
 
-Gerado por `model/sinal_modelo.py` em 2026-10-21 01:09 UTC. XGBoost local, treino de out/2025 a ago/2026 e teste em set/2026, só focos com FRP, rótulo pelo limiar de `focos.limiar_frp`.
+Gerado por `model/sinal_modelo.py` em 2026-10-27 03:56 UTC. XGBoost local sobre a Gold de treino (`focos.gold_treino`): treino de out/2025 a ago/2026 e teste em set/2026, só focos com FRP, rótulo pelo limiar de `focos.limiar_frp`, matriz na ordem e na codificação da API (`model/pacote.py`, xgboost 2.1.3).
 
 - Treino: 2.530.560 focos, 10.0% intensos.
 - Teste: 756.172 focos, 10.8% intensos.
 
 | Modelo (mês de teste) | ROC AUC | PR AUC |
 |---|---|---|
-| XGBoost, variáveis do plano | 0.725 | 0.252 |
-| XGBoost sem `mes` | 0.723 | 0.250 |
+| XGBoost, variáveis do plano | 0.725 | 0.251 |
+| XGBoost sem `mes` | 0.722 | 0.248 |
 | Baseline B: regressão logística (`tipo_orbita`, `hora`) | 0.649 | 0.171 |
 | Baseline A: sempre a classe majoritária | 0.500 | 0.108 |
 
 O baseline A tem acurácia de 89.2% sem aprender nada, e por isso a comparação usa ROC AUC. A PR AUC mostra o ganho na classe rara (a de um classificador sem sinal é a própria parcela de intensos).
 
-Variáveis mais importantes do XGBoost (ganho): `hora` (1,336), `tipo_orbita_geoestacionario` (639), `bioma_Mata Atlântica` (555), `tipo_orbita_polar` (547), `bioma_Caatinga` (466), `lon` (252), `mes` (236), `lat` (217).
+Variáveis mais importantes do XGBoost (ganho): `hora` (1,390), `tipo_orbita=polar` (801), `bioma=Mata Atlântica` (626), `tipo_orbita=geoestacionario` (493), `lon` (260), `mes` (221), `lat` (211), `bioma=Cerrado` (206).
 
 ### Decisão
 
-**Seguir com as variáveis do plano.** O XGBoost passa do alvo de 0.70 de ROC AUC e ganha da regressão logística por 0.076.
+**Seguir com as variáveis do plano.** O XGBoost passa do alvo de 0.70 de ROC AUC e ganha da regressão logística por 0.077.
 
-Sem `mes`, o ROC AUC muda em -0.002. Set/2026 não aparece no treino, então no teste o mês é sempre um valor que o modelo nunca viu.
+Sem `mes`, o ROC AUC muda em -0.003. Set/2026 não aparece no treino, então no teste o mês é sempre um valor que o modelo nunca viu.
 <!-- C2: fim -->
 
 ## Custos no GCP
@@ -133,7 +139,7 @@ usa esse artefato.
 <!-- C3: início (gerado por model/teste_pacote_api.py) -->
 ## C3. Teste do pacote do modelo
 
-Gerado por `model/teste_pacote_api.py` em 2026-10-21 03:13 UTC, sem nada no GCP (custo zero). É a "exportação de brinquedo" do plano, adaptada: o modelo real é um XGBoost treinado fora do BigQuery ML (ver "Custos no GCP"), então a C3 testa o pacote que a Frente C gera contra o código da API da Frente D (`origin/frente-d/api`).
+Gerado por `model/teste_pacote_api.py` em 2026-10-27 04:02 UTC, com 500 focos reais de treino de `focos.gold_treino`. É a "exportação de brinquedo" do plano, adaptada: o modelo real é um XGBoost treinado fora do BigQuery ML (ver "Custos no GCP"), então a C3 testa o pacote que a Frente C gera contra o código da API da Frente D (`origin/frente-d/api`).
 
 ### Resultado
 
@@ -141,6 +147,7 @@ Gerado por `model/teste_pacote_api.py` em 2026-10-21 03:13 UTC, sem nada no GCP 
 - **Carga:** a classe `Modelo` da API carregou o pacote (`foco_intenso_teste_v0`).
 - **Codificação:** 500 de 500 vetores montados pela API iguais aos do treino (15 colunas).
 - **Paridade:** 500 de 500 probabilidades iguais; maior diferença 0.0e+00. Passou.
+- **Categorias:** valores fora do manifest: nenhum. Focos sem bioma na amostra: 0; intensos: 60 de 500.
 
 ### Passo a passo da preparação das variáveis (para a Frente D)
 
