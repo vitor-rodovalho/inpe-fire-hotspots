@@ -1,18 +1,13 @@
 """C2. Sinal do modelo: XGBoost local contra os dois baselines, com divisão por tempo.
 
-Lê da Bronze os focos de out/2025 a set/2026 e aplica as regras da Silver e do
-streaming: apara espaços, converte tipos, trata vazio e -999 como nulo em todas
-as colunas numéricas e descarta o que o streaming rejeitaria (coordenada fora
-do Brasil, risco de fogo fora de 0 a 1). Focos sem FRP ficam de fora, porque
-sem FRP não há rótulo.
-
-O rótulo foco_intenso é frp > limiar, com o limiar de focos.limiar_frp (C1) e
-o tipo de órbita de focos.satelites: as mesmas tabelas e a mesma comparação do
-Dataflow e da Gold de treino.
+Lê a Gold de treino (focos.gold_treino, A7), que já traz as variáveis, o
+rótulo e o conjunto: só focos com FRP, rótulo foco_intenso = frp > limiar de
+focos.limiar_frp (C1), treino de out/2025 a ago/2026 e teste em set/2026.
 
 Variáveis, só o que se sabe no instante da detecção (plano, seção "O modelo"):
 lat, lon, hora, mes, tipo_orbita, bioma, numero_dias_sem_chuva, precipitacao
-e risco_fogo. Treino de out/2025 a ago/2026 e teste em set/2026.
+e risco_fogo. O XGBoost recebe a matriz de model/pacote.py, a mesma ordem de
+colunas e a mesma codificação que a API usa.
 
 Compara, no mês de teste:
   - XGBoost com as variáveis do plano;
@@ -43,6 +38,8 @@ from google.cloud import bigquery
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 
+import pacote
+
 # =============================================================================
 # Constantes. Os valores vêm de config.env; os padrões são os do contrato
 # =============================================================================
@@ -50,19 +47,10 @@ PROJECT_ID = os.environ.get("PROJECT_ID", "inpe-fire-hotspots")
 REGIAO = os.environ.get("REGIAO", "us-central1")
 DATASET = os.environ.get("DATASET", "focos")
 
-TABELA_BRONZE = f"{PROJECT_ID}.{DATASET}.bronze_focos_mensal"
-TABELA_SATELITES = f"{PROJECT_ID}.{DATASET}.satelites"
-TABELA_LIMIAR = f"{PROJECT_ID}.{DATASET}.limiar_frp"
-
-MES_INICIO_TREINO = "2025-10-01"   # Partição mes_referencia da Bronze
-MES_TESTE = "2026-09-01"           # Mês de teste; o treino vai até o mês anterior
-VALOR_AUSENTE = -999
-LAT_MIN, LAT_MAX = -34.0, 5.5      # Os mesmos de pipeline/focos_stream/cleaning.py
-LON_MIN, LON_MAX = -74.5, -28.5
+TABELA_GOLD = f"{PROJECT_ID}.{DATASET}.gold_treino"
 LIMITE_GB_CONSULTA = 2
 
-VARIAVEIS_NUMERICAS = ["lat", "lon", "hora", "mes", "numero_dias_sem_chuva", "precipitacao", "risco_fogo"]
-VARIAVEIS_CATEGORICAS = ["tipo_orbita", "bioma"]
+ROTULO = "foco_intenso"
 VARIAVEIS_BASELINE = ["tipo_orbita", "hora"]   # Baseline B, as duas tratadas como categorias
 
 PARAMETROS_XGB = {
@@ -85,38 +73,7 @@ MARCA_FIM = "<!-- C2: fim -->"
 # =============================================================================
 
 
-def numero(coluna) -> str:
-    """Texto para FLOAT64, com vazio e -999 virando NULL (a regra da Silver e do streaming)."""
-    texto = f"TRIM(IFNULL({coluna}, ''))"
-    return f"IF({texto} = '' OR SAFE_CAST({texto} AS FLOAT64) = {VALOR_AUSENTE}, NULL, SAFE_CAST({texto} AS FLOAT64))"
-
-
-CONSULTA_FOCOS = f"""
-WITH limpos AS (
-  SELECT
-    SAFE.PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', TRIM(b.data_hora_gmt)) AS data_hora_gmt,
-    TRIM(b.satelite) AS satelite,
-    NULLIF(TRIM(b.bioma), '') AS bioma,
-    {numero('b.lat')} AS lat,
-    {numero('b.lon')} AS lon,
-    {numero('b.numero_dias_sem_chuva')} AS numero_dias_sem_chuva,
-    {numero('b.precipitacao')} AS precipitacao,
-    {numero('b.risco_fogo')} AS risco_fogo,
-    {numero('b.frp')} AS frp
-  FROM `{TABELA_BRONZE}` AS b
-  WHERE b.mes_referencia BETWEEN DATE '{MES_INICIO_TREINO}' AND DATE '{MES_TESTE}'
-)
-SELECT
-  l.data_hora_gmt, l.satelite, s.tipo_orbita, l.bioma,
-  l.lat, l.lon, l.numero_dias_sem_chuva, l.precipitacao, l.risco_fogo, l.frp
-FROM limpos AS l
-JOIN `{TABELA_SATELITES}` AS s USING (satelite)
-WHERE l.data_hora_gmt IS NOT NULL
-  AND l.frp IS NOT NULL
-  AND l.lat BETWEEN {LAT_MIN} AND {LAT_MAX}
-  AND l.lon BETWEEN {LON_MIN} AND {LON_MAX}
-  AND (l.risco_fogo IS NULL OR l.risco_fogo BETWEEN 0 AND 1)
-"""
+CONSULTA_GOLD = f"SELECT * FROM `{TABELA_GOLD}`"
 
 
 def consultar(cliente, sql) -> pd.DataFrame:
@@ -130,26 +87,15 @@ def consultar(cliente, sql) -> pd.DataFrame:
     return job.to_dataframe()
 
 
-def preparar(focos, limiares) -> pd.DataFrame:
-    """Hora, mês, rótulo e conjunto (treino ou teste), como a Gold de treino vai fazer."""
-    focos = focos.copy()
-    focos["hora"] = focos["data_hora_gmt"].dt.hour
-    focos["mes"] = focos["data_hora_gmt"].dt.month
-    focos["limiar"] = focos["tipo_orbita"].map(limiares)
-    if focos["limiar"].isna().any():
-        faltando = sorted(focos.loc[focos["limiar"].isna(), "tipo_orbita"].unique())
-        raise RuntimeError(f"Tipo de órbita sem limiar em {TABELA_LIMIAR}: {faltando}. Rode a C1 antes.")
-    focos["foco_intenso"] = (focos["frp"] > focos["limiar"]).astype(int)
-    inicio_teste = pd.Timestamp(MES_TESTE, tz="UTC")
-    focos["conjunto"] = np.where(focos["data_hora_gmt"] < inicio_teste, "treino", "teste")
-    return focos
+def matriz_modelo(focos) -> pd.DataFrame:
+    """As variáveis do plano na ordem e na codificação da API (model/pacote.py)."""
+    return pd.DataFrame(pacote.montar_matriz(focos), columns=pacote.nomes_colunas(), index=focos.index)
 
 
-def matriz(focos, numericas, categoricas) -> pd.DataFrame:
-    """Variáveis numéricas como estão (nulos ficam NaN) e categóricas em one-hot."""
-    partes = [focos[numericas].astype("float64")] if numericas else []
-    partes += [pd.get_dummies(focos[c].astype("string"), prefix=c, dtype="float64") for c in categoricas]
-    return pd.concat(partes, axis=1)
+def matriz_baseline(focos) -> pd.DataFrame:
+    """Baseline B: tipo_orbita e hora, as duas em one-hot."""
+    return pd.concat([pd.get_dummies(focos[c].astype("string"), prefix=c, dtype="float64")
+                      for c in VARIAVEIS_BASELINE], axis=1)
 
 
 def metricas(y, score) -> dict[str, float]:
@@ -168,7 +114,7 @@ def treinar_xgboost(x_treino, y_treino, x_teste, y_teste) -> tuple[dict[str, flo
 
 def avaliar(focos) -> dict:
     treino, teste = focos[focos["conjunto"] == "treino"], focos[focos["conjunto"] == "teste"]
-    y_treino, y_teste = treino["foco_intenso"], teste["foco_intenso"]
+    y_treino, y_teste = treino[ROTULO].astype(int), teste[ROTULO].astype(int)
     resultado = {
         "focos_treino": len(treino),
         "focos_teste": len(teste),
@@ -183,13 +129,13 @@ def avaliar(focos) -> dict:
     resultado["majoritaria"]["acuracia"] = float((y_teste == majoritaria).mean())
 
     # Baseline B: regressão logística com tipo_orbita e hora, ambas em one-hot
-    x = matriz(focos, [], VARIAVEIS_BASELINE)
+    x = matriz_baseline(focos)
     logistica = LogisticRegression(max_iter=1000, class_weight="balanced")
     logistica.fit(x.loc[treino.index], y_treino)
     resultado["logistica"] = metricas(y_teste, logistica.predict_proba(x.loc[teste.index])[:, 1])
 
     # XGBoost com as variáveis do plano, e a mesma coisa sem mes
-    x = matriz(focos, VARIAVEIS_NUMERICAS, VARIAVEIS_CATEGORICAS)
+    x = matriz_modelo(focos)
     resultado["xgboost"], resultado["importancia"] = treinar_xgboost(
         x.loc[treino.index], y_treino, x.loc[teste.index], y_teste)
     x = x.drop(columns="mes")
@@ -230,8 +176,9 @@ def texto_readme(r) -> str:
         "## C2. Sinal do modelo",
         "",
         f"Gerado por `model/sinal_modelo.py` em {dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M} UTC. "
-        "XGBoost local, treino de out/2025 a ago/2026 e teste em set/2026, só focos com FRP, rótulo "
-        f"pelo limiar de `focos.limiar_frp`.",
+        "XGBoost local sobre a Gold de treino (`focos.gold_treino`): treino de out/2025 a ago/2026 e "
+        "teste em set/2026, só focos com FRP, rótulo pelo limiar de `focos.limiar_frp`, matriz na ordem "
+        f"e na codificação da API (`model/pacote.py`, xgboost {xgb.__version__}).",
         "",
         f"- Treino: {milhar(r['focos_treino'])} focos, {r['pct_intensos_treino']:.1f}% intensos.",
         f"- Teste: {milhar(r['focos_teste'])} focos, {r['pct_intensos_teste']:.1f}% intensos.",
@@ -275,12 +222,8 @@ def main() -> None:
     args = parser.parse_args()
 
     cliente = bigquery.Client(project=PROJECT_ID, location=REGIAO)
-    limiares = consultar(cliente, f"SELECT tipo_orbita, limiar FROM `{TABELA_LIMIAR}`")
-    limiares = dict(zip(limiares["tipo_orbita"], limiares["limiar"].astype(float)))
-    print(f"Limiares de {TABELA_LIMIAR}: " + ", ".join(f"{k} = {v:.1f} MW" for k, v in limiares.items()))
-
-    focos = preparar(consultar(cliente, CONSULTA_FOCOS), limiares)
-    print(f"{len(focos):,} focos com FRP lidos; treinando (pode levar alguns minutos)...")
+    focos = consultar(cliente, CONSULTA_GOLD)
+    print(f"{len(focos):,} focos lidos de {TABELA_GOLD}; treinando (pode levar alguns minutos)...")
     resultado = avaliar(focos)
 
     texto = texto_readme(resultado)

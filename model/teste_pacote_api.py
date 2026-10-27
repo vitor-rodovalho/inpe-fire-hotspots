@@ -5,26 +5,30 @@ do plano; ver "Custos no GCP" no README). Esta etapa prova, antes do modelo
 real, que o pacote que a Frente C gera é lido pela API da Frente D e dá a mesma
 resposta:
 
-  1. treina um XGBoost pequeno com 500 focos sintéticos, com as variáveis e as
-     categorias reais (nada roda no GCP, custo zero);
+  1. treina um XGBoost pequeno com 500 focos reais da Gold de treino
+     (focos.gold_treino, A7), as "poucas centenas de linhas" do plano; com
+     --sintetico, usa 500 focos inventados e nada roda no GCP;
   2. grava o pacote (model/pacote.py) em dados/pacote_teste/;
   3. copia o código da API da branch da Frente D (git show, só leitura) para
      dados/api_frente_d/ e carrega o pacote com a classe Modelo de lá;
   4. compara, foco a foco, o vetor montado pela API com o do treino e a
-     probabilidade da API com a do Booster;
+     probabilidade da API com a do Booster, e conta os valores de bioma e
+     tipo_orbita que não estão no manifest (a API os codificaria como zeros);
   5. grava a versão do XGBoost e o passo a passo da preparação das variáveis em
      model/README.md, na seção da C3.
 
 Uso (a partir da raiz do repositório, com o xgboost da API instalado):
     pip install -r model/requirements.txt
     git fetch origin frente-d/api
-    python3 model/teste_pacote_api.py
+    set -a; source config.env; set +a
+    python3 model/teste_pacote_api.py               # 500 focos da Gold (dry run antes)
+    python3 model/teste_pacote_api.py --sintetico   # sem GCP, custo zero
 """
 
 import argparse
 import datetime as dt
 import importlib
-import math
+import os
 import re
 import shutil
 import subprocess
@@ -39,6 +43,12 @@ import pacote
 # =============================================================================
 # Constantes
 # =============================================================================
+PROJECT_ID = os.environ.get("PROJECT_ID", "inpe-fire-hotspots")
+REGIAO = os.environ.get("REGIAO", "us-central1")
+DATASET = os.environ.get("DATASET", "focos")
+TABELA_GOLD = f"{PROJECT_ID}.{DATASET}.gold_treino"
+LIMITE_GB_CONSULTA = 1
+
 REF_API = "origin/frente-d/api"            # Branch da Frente D com a API
 ARQUIVOS_API = ["api/app/__init__.py", "api/app/modelo.py", "api/requirements.txt"]
 PASTA_DADOS = pacote.RAIZ_REPO / "dados"
@@ -55,6 +65,28 @@ CAMINHO_README = pacote.RAIZ_REPO / "model" / "README.md"
 MARCA_INICIO = "<!-- C3: início (gerado por model/teste_pacote_api.py) -->"
 MARCA_FIM = "<!-- C3: fim -->"
 # =============================================================================
+
+
+def focos_da_gold() -> pd.DataFrame:
+    """500 focos de treino da Gold, sempre os mesmos (ordem por hash da linha), com dry run antes."""
+    from google.cloud import bigquery
+
+    sql = f"""
+    SELECT * EXCEPT (conjunto)
+    FROM `{TABELA_GOLD}` AS g
+    WHERE conjunto = 'treino'
+    ORDER BY FARM_FINGERPRINT(TO_JSON_STRING(g))
+    LIMIT {QTD_FOCOS}
+    """
+    cliente = bigquery.Client(project=PROJECT_ID, location=REGIAO)
+    limite = int(LIMITE_GB_CONSULTA * 1024**3)
+    estimativa = cliente.query(sql, job_config=bigquery.QueryJobConfig(dry_run=True)).total_bytes_processed
+    if estimativa > limite:
+        raise RuntimeError(f"Consulta leria mais de {LIMITE_GB_CONSULTA} GB.")
+    print(f"Consulta vai ler {estimativa / 1024**2:,.1f} MB da Gold de treino")
+    focos = cliente.query(sql, job_config=bigquery.QueryJobConfig(maximum_bytes_billed=limite)).to_dataframe()
+    focos["foco_intenso"] = focos["foco_intenso"].astype(int)
+    return focos
 
 
 def focos_sinteticos(rng) -> pd.DataFrame:
@@ -101,8 +133,14 @@ def carregar_modelo_da_api():
 
 def linha_da_api(foco) -> dict:
     """Linha do DataFrame como a API recebe: nulos como None."""
-    return {chave: (None if isinstance(valor, float) and math.isnan(valor) else valor)
+    return {chave: (None if not isinstance(valor, str) and pd.isna(valor) else valor)
             for chave, valor in foco.items() if chave != "foco_intenso"}
+
+
+def fora_do_manifest(focos) -> dict[str, list[str]]:
+    """Valores não nulos de cada categórica que não estão na lista do manifest."""
+    return {v["nome"]: sorted(set(focos[v["nome"]].dropna()) - set(v["categorias"]))
+            for v in pacote.VARIAVEIS if v["tipo"] == "categorica"}
 
 
 def validar(focos, booster, modelo_api) -> dict:
@@ -121,11 +159,16 @@ def validar(focos, booster, modelo_api) -> dict:
         "max_diferenca": max(diferencas),
         "iguais": sum(d <= TOLERANCIA for d in diferencas),
         "versao_carregada": modelo_api.versao,
+        "fora_do_manifest": fora_do_manifest(focos),
+        "sem_bioma": int(focos["bioma"].isna().sum()),
+        "intensos": int(focos["foco_intenso"].sum()),
     }
 
 
-def texto_readme(versao_api, resultado) -> str:
+def texto_readme(versao_api, resultado, origem) -> str:
     passou = resultado["vetores_iguais"] == resultado["focos"] == resultado["iguais"]
+    fora = "; ".join(f"`{nome}`: {', '.join(valores)}" for nome, valores in resultado["fora_do_manifest"].items()
+                     if valores) or "nenhum"
     versao_ok = xgb.__version__ == versao_api
     colunas = pacote.nomes_colunas()
     return "\n".join([
@@ -133,9 +176,9 @@ def texto_readme(versao_api, resultado) -> str:
         "## C3. Teste do pacote do modelo",
         "",
         f"Gerado por `model/teste_pacote_api.py` em {dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M} UTC, "
-        "sem nada no GCP (custo zero). É a \"exportação de brinquedo\" do plano, adaptada: o modelo real é um XGBoost treinado fora do BigQuery ML (ver "
-        "\"Custos no GCP\"), então a C3 testa o pacote que a Frente C gera contra o código da API da "
-        f"Frente D (`{REF_API}`).",
+        f"com {origem}. É a \"exportação de brinquedo\" do plano, adaptada: o modelo real é um XGBoost "
+        "treinado fora do BigQuery ML (ver \"Custos no GCP\"), então a C3 testa o pacote que a Frente C gera "
+        f"contra o código da API da Frente D (`{REF_API}`).",
         "",
         "### Resultado",
         "",
@@ -147,6 +190,8 @@ def texto_readme(versao_api, resultado) -> str:
         f"iguais aos do treino ({resultado['colunas']} colunas).",
         f"- **Paridade:** {resultado['iguais']} de {resultado['focos']} probabilidades iguais; maior "
         f"diferença {resultado['max_diferenca']:.1e}. {'Passou.' if passou and versao_ok else '**Não passou.**'}",
+        f"- **Categorias:** valores fora do manifest: {fora}. Focos sem bioma na amostra: "
+        f"{resultado['sem_bioma']}; intensos: {resultado['intensos']} de {resultado['focos']}.",
         "",
         "### Passo a passo da preparação das variáveis (para a Frente D)",
         "",
@@ -185,9 +230,15 @@ def atualizar_readme(texto) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sem-readme", action="store_true", help="Só imprime o resultado, sem mexer no README")
+    parser.add_argument("--sintetico", action="store_true", help="Usa focos inventados, sem ler o GCP")
     args = parser.parse_args()
 
-    focos = focos_sinteticos(np.random.default_rng(SEMENTE))
+    if args.sintetico:
+        focos = focos_sinteticos(np.random.default_rng(SEMENTE))
+        origem = f"{QTD_FOCOS} focos sintéticos, sem nada no GCP (custo zero)"
+    else:
+        focos = focos_da_gold()
+        origem = f"{QTD_FOCOS} focos reais de treino de `focos.gold_treino`"
     booster = xgb.train(
         {"objective": "binary:logistic", "max_depth": 3, "eta": 0.2, "seed": SEMENTE},
         xgb.DMatrix(pacote.montar_matriz(focos), label=focos["foco_intenso"]),
@@ -199,7 +250,7 @@ def main() -> None:
     versao_api = copiar_api()
     resultado = validar(focos, booster, carregar_modelo_da_api())
 
-    texto = texto_readme(versao_api, resultado)
+    texto = texto_readme(versao_api, resultado, origem)
     print("\n" + texto)
     if not args.sem_readme:
         atualizar_readme(texto)
