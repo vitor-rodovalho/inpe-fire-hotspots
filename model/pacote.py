@@ -71,7 +71,7 @@ def montar_matriz(focos, variaveis=VARIAVEIS) -> np.ndarray:
             colunas += [(valores == categoria).fillna(False).to_numpy(dtype="float32")
                         for categoria in variavel["categorias"]]
         else:
-            colunas.append(pd.to_numeric(valores, errors="coerce").to_numpy(dtype="float32"))
+            colunas.append(pd.to_numeric(valores, errors="coerce").to_numpy(dtype="float32", na_value=np.nan))
     return np.column_stack(colunas).astype(np.float32)
 
 
