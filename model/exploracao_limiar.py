@@ -1,12 +1,14 @@
 """C1. Exploração e limiar: distribuição do FRP e limiar de "foco intenso" por tipo de órbita.
 
-Lê da Bronze só os meses de treino (out/2025 a ago/2026) e só as colunas
-satelite e frp. Trata vazio e -999 como nulo, como na Silver e no streaming.
-O tipo de órbita vem de focos.satelites, a mesma tabela que o pipeline e a API
-usam, para que os nomes ('geoestacionario', 'polar') casem nas três pontas.
+Lê da Silver histórica (A5) só os meses de treino (out/2025 a ago/2026) e só
+as colunas satelite e frp. A Silver já trata vazio e -999 como nulo, com as
+mesmas regras do streaming. O tipo de órbita vem de focos.satelites, a mesma
+tabela que o pipeline e a API usam, para que os nomes ('geoestacionario',
+'polar') casem nas três pontas.
 
 No pandas, o script mostra:
-  1. a parcela de focos sem FRP, por tipo de órbita e por satélite;
+  1. a parcela de focos sem FRP, por tipo de órbita e por satélite, ao lado da
+     parcela do resumo de A1 (docs/data_profile.md);
   2. a distribuição do FRP (percentis), por tipo de órbita e por satélite;
   3. o limiar proposto: o percentil escolhido (90, pelo plano) de cada órbita,
      comparado com os candidatos do notebook 01.
@@ -38,16 +40,16 @@ PROJECT_ID = os.environ.get("PROJECT_ID", "inpe-fire-hotspots")
 REGIAO = os.environ.get("REGIAO", "us-central1")
 DATASET = os.environ.get("DATASET", "focos")
 
-TABELA_BRONZE = f"{PROJECT_ID}.{DATASET}.bronze_focos_mensal"
+TABELA_SILVER = f"{PROJECT_ID}.{DATASET}.silver_focos_historico"
 TABELA_SATELITES = f"{PROJECT_ID}.{DATASET}.satelites"
 TABELA_LIMIAR = f"{PROJECT_ID}.{DATASET}.limiar_frp"
 
-MES_INICIO_TREINO = "2025-10-01"   # Meses de treino (partição mes_referencia da Bronze)
-MES_FIM_TREINO = "2026-08-01"      # Set/2026 é o mês de teste e fica de fora
+INICIO_TREINO = "2025-10-01"       # Meses de treino (partição data_deteccao da Silver)
+FIM_TREINO = "2026-08-31"          # Set/2026 é o mês de teste e fica de fora
 PERCENTIL_LIMIAR = 90              # Proposta do plano para "foco intenso"
 PERCENTIS_DISTRIBUICAO = [50, 75, 90, 95, 99]   # Os mesmos do notebook 01
-VALOR_AUSENTE = -999
 LIMITE_GB_CONSULTA = 2
+PCT_SEM_FRP_A1 = 1.7               # Resumo de A1 (docs/data_profile.md), nos 12 meses do histórico
 
 # Valores candidatos do notebook 01 (P90 com APPROX_QUANTILES no BigQuery), para conferência
 CANDIDATOS_MW = {"geoestacionario": 202.2, "polar": 28.4}
@@ -55,33 +57,22 @@ TOLERANCIA_MW = 1.0
 # =============================================================================
 
 CONSULTA_FRP = f"""
-SELECT
-  s.tipo_orbita,
-  TRIM(b.satelite) AS satelite,
-  TRIM(b.frp) AS frp_texto
-FROM `{TABELA_BRONZE}` AS b
-LEFT JOIN `{TABELA_SATELITES}` AS s ON TRIM(b.satelite) = s.satelite
-WHERE b.mes_referencia BETWEEN DATE '{MES_INICIO_TREINO}' AND DATE '{MES_FIM_TREINO}'
+SELECT s.tipo_orbita, f.satelite, f.frp
+FROM `{TABELA_SILVER}` AS f
+LEFT JOIN `{TABELA_SATELITES}` AS s USING (satelite)
+WHERE f.data_deteccao BETWEEN DATE '{INICIO_TREINO}' AND DATE '{FIM_TREINO}'
 """
 
 
 def ler_focos_treino(cliente) -> pd.DataFrame:
-    """Focos dos meses de treino com tipo de órbita e FRP como texto, com dry run antes."""
+    """Focos dos meses de treino com tipo de órbita e FRP, com dry run antes."""
     limite = int(LIMITE_GB_CONSULTA * 1024**3)
     estimativa = cliente.query(CONSULTA_FRP, job_config=bigquery.QueryJobConfig(dry_run=True)).total_bytes_processed
-    print(f"Consulta vai ler {estimativa / 1024**2:,.1f} MB da Bronze")
+    print(f"Consulta vai ler {estimativa / 1024**2:,.1f} MB da Silver histórica")
     if estimativa > limite:
         raise RuntimeError(f"Consulta leria mais de {LIMITE_GB_CONSULTA} GB; confira o filtro de partição.")
     job = cliente.query(CONSULTA_FRP, job_config=bigquery.QueryJobConfig(maximum_bytes_billed=limite))
     return job.to_dataframe()
-
-
-def limpar_frp(focos) -> pd.DataFrame:
-    """Converte o FRP para número, com vazio e -999 virando nulo."""
-    focos = focos.copy()
-    focos["frp"] = pd.to_numeric(focos["frp_texto"], errors="coerce")  # vazio vira nulo
-    focos.loc[focos["frp"] == VALOR_AUSENTE, "frp"] = None
-    return focos.drop(columns="frp_texto")
 
 
 def parcela_sem_frp(focos, chaves) -> pd.DataFrame:
@@ -112,7 +103,9 @@ def calcular_limiares(focos, percentil) -> pd.DataFrame:
 
 
 def imprimir_exploracao(focos, limiares, percentil) -> None:
-    print("\n1. Focos sem FRP nos meses de treino, por tipo de órbita:")
+    pct_sem_frp = 100 * focos["frp"].isna().mean()
+    print(f"\n1. Focos sem FRP nos meses de treino: {pct_sem_frp:.1f}% "
+          f"(A1, nos 12 meses do histórico: {PCT_SEM_FRP_A1}%). Por tipo de órbita:")
     print(parcela_sem_frp(focos, "tipo_orbita").to_string())
     print("\n   ... e por satélite:")
     print(parcela_sem_frp(focos, ["tipo_orbita", "satelite"]).to_string())
@@ -164,7 +157,7 @@ def main() -> None:
     args = parser.parse_args()
 
     cliente = bigquery.Client(project=PROJECT_ID, location=REGIAO)
-    focos = limpar_frp(ler_focos_treino(cliente))
+    focos = ler_focos_treino(cliente)
 
     sem_orbita = sorted(focos.loc[focos["tipo_orbita"].isna(), "satelite"].unique())
     if sem_orbita:
