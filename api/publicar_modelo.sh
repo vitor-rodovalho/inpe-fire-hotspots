@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Envia um pacote do modelo (manifest.json, satelites.json e o booster) para o
+# Envia um pacote do modelo (manifest.json, satelites.json, o booster e assets/) para o
 # bucket, na pasta que a API carrega.
 #
 # Uso:
@@ -30,7 +30,7 @@ done
 
 DESTINO="gs://${BUCKET}/${PASTA_MODELOS}/${VERSAO}"
 log "Enviando ${PASTA} para ${DESTINO}"
-gcloud storage cp "${PASTA}"/* "${DESTINO}/"
-gcloud storage ls -l "${DESTINO}/"
+gcloud storage cp -r "${PASTA}"/* "${DESTINO}/"
+gcloud storage ls -r "${DESTINO}/"
 
 log "Pronto. Para a API usar: bash api/deploy.sh --modelo ${VERSAO}"

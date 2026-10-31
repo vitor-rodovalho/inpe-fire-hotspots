@@ -1,0 +1,4 @@
+# Para api/montar_pacote_v1.py (C5): export do BigQuery ML e paridade.
+# Roda no Cloud Shell, não vai para a imagem da API.
+-r requirements.txt
+google-cloud-bigquery==3.27.0
