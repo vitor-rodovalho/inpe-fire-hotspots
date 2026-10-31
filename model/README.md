@@ -149,6 +149,35 @@ O `predictor.py` que vem no export (`xgboost_predictor-0.1.tar.gz`) não serve �
 - O limiar de decisão de `intenso` sai da C4. Com `auto_class_weights`, a probabilidade não é calibrada, e 0,5 marca intensos demais.
 <!-- C3: fim -->
 
+## C4. Treino e avaliação
+
+O modelo do projeto é o boosted tree do BigQuery ML do plano, em
+`sql/modelo/` (rodam com `sql/run_sql.sh` ou com o script abaixo):
+
+| Arquivo | O que faz |
+|---|---|
+| `01_modelo_foco_intenso.sql` | `CREATE MODEL` do plano, com registro no Vertex AI (`modelo_foco_intenso`, alias `v1`) e os hiperparâmetros da C2 |
+| `02_baseline_logistica.sql` | Baseline B: regressão logística com `tipo_orbita` e `hora` |
+| `03_avaliacao.sql` | `ML.EVALUATE` do modelo e dos baselines em set/2026, com o ROC AUC exato |
+| `04_roc_curve.sql` | `ML.ROC_CURVE` do modelo em set/2026 |
+
+```bash
+set -a; source config.env; set +a
+python3 model/treino_avaliacao.py --so-estimar   # dry run dos treinos, sem custo
+python3 model/treino_avaliacao.py                # treina, avalia e grava docs/model_metrics.md
+```
+
+Resultado em 31/10 (detalhes em `docs/model_metrics.md`): ROC AUC de 0,725 no
+mês de teste, contra 0,649 da regressão logística e 0,500 da classe
+majoritária, o mesmo valor do XGBoost local da C2. O treino levou 12 minutos e
+custou US$ 0,19.
+
+Os hiperparâmetros são os da C2, porque o plano não fixa nenhum: 300
+iterações, profundidade 6, taxa de aprendizado 0,1 e subamostragem de 0,8, com
+o treino em todos os meses (`NO_SPLIT`). O padrão do BigQuery ML sortearia
+focos do treino para a parada antecipada, e focos vizinhos no tempo e no
+espaço são quase cópias, então esse sorteio mediria mal.
+
 ## Custos no GCP e a escolha do BigQuery ML
 
 Regra da Frente C: nada roda no GCP sem antes estimar o que vai ser
