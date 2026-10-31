@@ -6,8 +6,9 @@ focos.limiar_frp (C1), treino de out/2025 a ago/2026 e teste em set/2026.
 
 Variáveis, só o que se sabe no instante da detecção (plano, seção "O modelo"):
 lat, lon, hora, mes, tipo_orbita, bioma, numero_dias_sem_chuva, precipitacao
-e risco_fogo. O XGBoost recebe a matriz de model/pacote.py, a mesma ordem de
-colunas e a mesma codificação que a API usa.
+e risco_fogo, com as categóricas em one-hot. É o teste de sinal do plano: o
+modelo do projeto é o boosted tree do BigQuery ML (C3 e C4), e este XGBoost
+local só mostra, antes dele, se as variáveis separam os focos intensos.
 
 Compara, no mês de teste:
   - XGBoost com as variáveis do plano;
@@ -38,8 +39,6 @@ from google.cloud import bigquery
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-import pacote
-
 # =============================================================================
 # Constantes. Os valores vêm de config.env; os padrões são os do contrato
 # =============================================================================
@@ -52,6 +51,15 @@ LIMITE_GB_CONSULTA = 2
 
 ROTULO = "foco_intenso"
 VARIAVEIS_BASELINE = ["tipo_orbita", "hora"]   # Baseline B, as duas tratadas como categorias
+
+# Variáveis do plano, na ordem da Gold; as categóricas viram uma coluna por categoria
+NUMERICAS = ["lat", "lon", "hora", "mes", "numero_dias_sem_chuva", "precipitacao", "risco_fogo"]
+CATEGORICAS = {
+    "tipo_orbita": ["geoestacionario", "polar"],
+    "bioma": ["Amazônia", "Caatinga", "Cerrado", "Mata Atlântica", "Pampa", "Pantanal"],
+}
+ORDEM_VARIAVEIS = ["lat", "lon", "hora", "mes", "tipo_orbita", "bioma",
+                   "numero_dias_sem_chuva", "precipitacao", "risco_fogo"]
 
 PARAMETROS_XGB = {
     "n_estimators": 300,
@@ -88,8 +96,16 @@ def consultar(cliente, sql) -> pd.DataFrame:
 
 
 def matriz_modelo(focos) -> pd.DataFrame:
-    """As variáveis do plano na ordem e na codificação da API (model/pacote.py)."""
-    return pd.DataFrame(pacote.montar_matriz(focos), columns=pacote.nomes_colunas(), index=focos.index)
+    """As variáveis do plano: numéricas como vêm (nulo vira NaN, que o XGBoost trata como
+    ausente) e categóricas em one-hot (nulo deixa todas as colunas da variável em 0)."""
+    colunas = {}
+    for nome in ORDEM_VARIAVEIS:
+        if nome in CATEGORICAS:
+            for categoria in CATEGORICAS[nome]:
+                colunas[f"{nome}={categoria}"] = (focos[nome] == categoria).fillna(False).astype("float32")
+        else:
+            colunas[nome] = pd.to_numeric(focos[nome], errors="coerce").astype("float32")
+    return pd.DataFrame(colunas, index=focos.index)
 
 
 def matriz_baseline(focos) -> pd.DataFrame:
@@ -177,8 +193,8 @@ def texto_readme(r) -> str:
         "",
         f"Gerado por `model/sinal_modelo.py` em {dt.datetime.now(dt.timezone.utc):%Y-%m-%d %H:%M} UTC. "
         "XGBoost local sobre a Gold de treino (`focos.gold_treino`): treino de out/2025 a ago/2026 e "
-        "teste em set/2026, só focos com FRP, rótulo pelo limiar de `focos.limiar_frp`, matriz na ordem "
-        f"e na codificação da API (`model/pacote.py`, xgboost {xgb.__version__}).",
+        "teste em set/2026, só focos com FRP, rótulo pelo limiar de `focos.limiar_frp`, categóricas em "
+        f"one-hot (xgboost {xgb.__version__}). É o teste de sinal do plano, antes do modelo do BigQuery ML.",
         "",
         f"- Treino: {milhar(r['focos_treino'])} focos, {r['pct_intensos_treino']:.1f}% intensos.",
         f"- Teste: {milhar(r['focos_teste'])} focos, {r['pct_intensos_teste']:.1f}% intensos.",
