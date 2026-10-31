@@ -1,6 +1,6 @@
 google-cloud-bigquery[pandas,bqstorage]>=3.25
 google-cloud-storage>=2.18
 pandas>=2.1
-# A mesma versão da API (api/requirements.txt), para o model.json carregar igual lá
+# A mesma versão da API (api/requirements.txt): o export do BigQuery ML carrega nela (C3)
 xgboost-cpu==2.1.3
 scikit-learn>=1.5
