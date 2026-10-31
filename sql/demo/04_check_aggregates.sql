@@ -1,5 +1,5 @@
 -- Confere os agregados do Dataflow contra a mesma conta feita em SQL sobre a
--- Silver de streaming (etapa B4 do plano). "situacao" = 'ok' quando batem.
+-- Silver de streaming. "situacao" = 'ok' quando batem.
 -- Só compara janelas que o Dataflow já gravou, pela linha mais recente de cada
 -- janela e estado (o total é gravado de novo quando chegam focos atrasados).
 -- Executar: bash sql/run_sql.sh sql/demo/04_check_aggregates.sql

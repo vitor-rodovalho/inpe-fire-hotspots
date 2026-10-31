@@ -1,4 +1,4 @@
-"""Testes da validação e da limpeza (etapa B2 do plano)."""
+"""Testes da validação e da limpeza."""
 
 import datetime as dt
 import json
