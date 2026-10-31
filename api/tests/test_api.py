@@ -28,6 +28,11 @@ def test_foco_sem_dados_de_clima(cliente, foco):
     assert cliente.post("/predict", json=foco).status_code == 200
 
 
+def test_foco_sem_bioma(cliente, foco):
+    del foco["bioma"]
+    assert cliente.post("/predict", json=foco).status_code == 200
+
+
 def test_condicoes_secas_dao_probabilidade_maior(cliente, foco):
     seco = foco | {"numero_dias_sem_chuva": 50, "precipitacao": 0.0, "risco_fogo": 1.0}
     umido = foco | {"numero_dias_sem_chuva": 0, "precipitacao": 10.0, "risco_fogo": 0.05}

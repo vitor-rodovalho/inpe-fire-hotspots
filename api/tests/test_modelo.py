@@ -1,4 +1,4 @@
-import math
+import json
 import shutil
 
 import pytest
@@ -15,36 +15,47 @@ def linha(**alteracoes):
     return base | alteracoes
 
 
-def test_codificacao_segue_a_ordem_do_manifest(pasta_modelo):
-    vetor = Modelo.carregar(str(pasta_modelo)).codificar(linha())[0]
-    # lat, lon, hora, mes | geoestacionario, polar | 6 biomas | dias, precipitacao, risco
-    assert list(vetor[:4]) == pytest.approx([-9.5, -56.2, 18, 10])
-    assert list(vetor[4:6]) == [0.0, 1.0]
-    assert list(vetor[6:12]) == [0.0, 0.0, 1.0, 0.0, 0.0, 0.0]  # Cerrado é o 3º
-    assert len(vetor) == 15
+@pytest.fixture
+def modelo(pasta_modelo):
+    return Modelo.carregar(str(pasta_modelo))
 
 
-def test_nulo_vira_nan(pasta_modelo):
-    vetor = Modelo.carregar(str(pasta_modelo)).codificar(linha(risco_fogo=None))[0]
-    assert math.isnan(vetor[-1])
+def test_uma_coluna_por_variavel_na_ordem_do_export(modelo):
+    vetor = modelo.codificar(linha())[0]
+    # lat, lon, hora, mes, tipo_orbita, bioma, dias, precipitacao, risco
+    assert list(vetor) == pytest.approx([-9.5, -56.2, 18, 10, 2, 3, 21.0, 0.0, 0.9])
 
 
-def test_probabilidade_entre_0_e_1_mesmo_sem_clima(pasta_modelo):
-    modelo = Modelo.carregar(str(pasta_modelo))
-    sem_clima = linha(numero_dias_sem_chuva=None, precipitacao=None, risco_fogo=None)
-    assert 0 <= modelo.probabilidade(sem_clima) <= 1
+def test_categorica_vira_indice_no_vocabulario(modelo):
+    assert modelo.codificar(linha(tipo_orbita="geoestacionario", bioma="Amazônia"))[0][4:6].tolist() == [1, 1]
+
+
+def test_categorica_nula_ou_desconhecida_vira_null_filler(modelo):
+    assert modelo.codificar(linha(bioma=None))[0][5] == 0
+    assert modelo.codificar(linha(bioma="Savana"))[0][5] == 0
+
+
+def test_numerica_nula_vira_media_do_treino(modelo, pasta_modelo):
+    medias = json.loads((pasta_modelo / "assets" / "model_metadata.json").read_text(encoding="utf-8"))["features"]
+    vetor = modelo.codificar(linha(numero_dias_sem_chuva=None, precipitacao=None, risco_fogo=None))[0]
+    assert list(vetor[6:]) == pytest.approx(
+        [medias["numero_dias_sem_chuva"]["mean"], medias["precipitacao"]["mean"], medias["risco_fogo"]["mean"]]
+    )
+
+
+def test_probabilidade_e_a_coluna_true(modelo):
+    """O Booster devolve [P(true), P(false)]; a API usa a primeira."""
+    saida = modelo.booster.inplace_predict(modelo.codificar(linha()))[0]
+    assert saida.sum() == pytest.approx(1.0, abs=1e-6)
+    assert modelo.probabilidade(linha()) == pytest.approx(float(saida[0]))
 
 
 def test_carrega_do_cloud_storage(pasta_modelo, monkeypatch):
     """Simula o bucket com uma pasta local, sem rede."""
-    baixados = []
-
-    def baixar_falso(uri, nomes, destino):
-        for nome in nomes:
-            shutil.copyfile(pasta_modelo / nome, destino / nome)
-            baixados.append(nome)
+    def baixar_falso(uri, destino):
+        shutil.copytree(pasta_modelo, destino, dirs_exist_ok=True)
 
     monkeypatch.setattr(modulo_modelo, "_baixar_do_gcs", baixar_falso)
     modelo = Modelo.carregar("gs://bucket-falso/modelos/foco_intenso/v1")
-    assert modelo.versao.startswith("foco_intenso")
-    assert sorted(baixados) == ["manifest.json", "model.json", "satelites.json"]
+    assert modelo.versao == "foco_intenso_provisorio_v0"
+    assert 0 <= modelo.probabilidade(linha()) <= 1

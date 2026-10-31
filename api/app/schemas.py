@@ -49,7 +49,8 @@ class FocoEntrada(BaseModel):
     data_hora_gmt: dt.datetime = Field(description="Horário da detecção; sem fuso, é lido como GMT")
     lat: float = Field(ge=LAT_MIN, le=LAT_MAX)
     lon: float = Field(ge=LON_MIN, le=LON_MAX)
-    bioma: Bioma
+    # Pode faltar: o modelo trata o nulo como uma categoria própria (_null_filler)
+    bioma: Bioma | None = None
     # Clima no ponto: podem faltar (o INPE manda -999 ou vazio), e aí viram nulo
     numero_dias_sem_chuva: float | None = Field(default=None, ge=0)
     precipitacao: float | None = Field(default=None, ge=0)
@@ -59,6 +60,13 @@ class FocoEntrada(BaseModel):
     @classmethod
     def _aparar_satelite(cls, valor):
         return valor.strip() if isinstance(valor, str) else valor
+
+    @field_validator("bioma", mode="before")
+    @classmethod
+    def _bioma_vazio_vira_nulo(cls, valor):
+        if isinstance(valor, str):
+            return valor.strip() or None
+        return valor
 
     @field_validator("numero_dias_sem_chuva", "precipitacao", "risco_fogo", mode="before")
     @classmethod

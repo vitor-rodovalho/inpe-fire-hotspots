@@ -14,6 +14,14 @@ def test_vazio_e_menos_999_viram_nulo(foco, valor):
     assert entrada.risco_fogo is None
 
 
+@pytest.mark.parametrize("valor", [None, "", "  "])
+def test_bioma_ausente_vira_nulo(foco, valor):
+    foco["bioma"] = valor
+    assert FocoEntrada(**foco).bioma is None
+    del foco["bioma"]
+    assert FocoEntrada(**foco).bioma is None
+
+
 @pytest.mark.parametrize(
     "campo, valor",
     [
