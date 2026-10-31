@@ -4,8 +4,8 @@ Antes do modelo real (C4), prova que o modelo exportado do BigQuery ML dá, em
 Python, a mesma resposta que o ML.PREDICT, e descobre o que a API precisa para
 isso (plano, Frente C):
 
-  1. treina um boosted tree pequeno na Gold de treino (um foco em cada
-     UM_EM_CADA do treino, ~10 mil), com as opções do plano e os
+  1. treina um boosted tree pequeno sobre poucas centenas de focos de treino
+     da Gold (um em cada UM_EM_CADA, ~500), com as opções do plano e os
      hiperparâmetros da C2;
   2. exporta com EXPORT MODEL, baixa os arquivos para dados/c3_brinquedo/ e
      guarda o ML.PREDICT de focos do mês de teste, incluindo focos com bioma
@@ -18,8 +18,9 @@ isso (plano, Frente C):
      a passo da preparação das variáveis para a Frente D.
 
 O treino roda no Vertex AI e é cobrado na tarifa de consulta (US$ 6,25 por
-TiB), com o tempo de máquina convertido em bytes: ~20 minutos e ~US$ 0,33 no
-teste de 29/10, quase sem depender do número de focos. O job tem teto de bytes
+TiB), com o tempo de máquina convertido em bytes: de 9 a 21 minutos e de
+US$ 0,15 a 0,33 por job nos testes de 20 a 31/10, sem relação clara com o
+número de focos ou de iterações. O job tem teto de bytes
 e é cancelado depois de LIMITE_MINUTOS. No fim, o modelo de brinquedo e o export
 no bucket são apagados (--manter para deixar).
 
@@ -36,6 +37,7 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 import warnings
@@ -59,9 +61,9 @@ MODELO = f"{PROJECT_ID}.{DATASET}.foco_intenso_brinquedo"
 PREFIXO_EXPORT = "modelos/foco_intenso/brinquedo"
 ROTULO = "foco_intenso"
 
-UM_EM_CADA = 253                   # ~10 mil focos de treino: o custo depende do tempo, não do volume
+UM_EM_CADA = 5000                  # ~500 focos de treino: as "poucas centenas de linhas" do plano
 QTD_PARIDADE = 400                 # Focos de teste sem nenhum nulo...
-QTD_PARIDADE_NULOS = 100           # ... e com bioma ou clima nulos
+QTD_PARIDADE_NULOS = 50            # ... mais tantos com bioma nulo e tantos com clima nulo
 LIMITE_GB_CONSULTA = 2
 TETO_GIB_TREINO = 100              # US$ 0,61 na tarifa de US$ 6,25 por TiB
 LIMITE_MINUTOS = 60
@@ -70,6 +72,9 @@ TARIFA_TIB = 6.25
 TOLERANCIA = 1e-6
 
 REF_API = "origin/frente-d/api"    # Branch da Frente D com a API
+# Formato do Booster exportado, pela documentação do EXPORT MODEL
+# (cloud.google.com/bigquery/docs/exporting-models: "Booster (XGBoost 0.82)")
+VERSAO_XGBOOST_EXPORT = "0.82"
 VERSAO_XGBOOST_PADRAO = "2.1.3"    # Se a branch não estiver disponível
 
 P = sinal_modelo.PARAMETROS_XGB    # Os mesmos da C2
@@ -166,22 +171,27 @@ def exportar(cliente, manter) -> None:
     uri = f"gs://{BUCKET}/{PREFIXO_EXPORT}/"
     cliente.query(f"EXPORT MODEL `{MODELO}` OPTIONS (URI = '{uri}')").result()
     blobs = list(storage.Client(project=PROJECT_ID).list_blobs(BUCKET, prefix=PREFIXO_EXPORT + "/"))
+    if PASTA_EXPORT.exists():
+        shutil.rmtree(PASTA_EXPORT)   # Não mistura com um export anterior
     for blob in blobs:
         destino = PASTA_EXPORT / blob.name.removeprefix(PREFIXO_EXPORT + "/")
         destino.parent.mkdir(parents=True, exist_ok=True)
         blob.download_to_filename(destino)
     print(f"Export: {len(blobs)} arquivos de {uri} em {PASTA_EXPORT}")
 
-    tem_nulo = ("bioma IS NULL OR numero_dias_sem_chuva IS NULL OR precipitacao IS NULL "
-                "OR risco_fogo IS NULL")
-    amostra = f"""
-      (SELECT * EXCEPT (conjunto) FROM `{TABELA_GOLD}` AS g
-       WHERE conjunto = 'teste' AND NOT ({tem_nulo})
-       ORDER BY FARM_FINGERPRINT(TO_JSON_STRING(g)) LIMIT {QTD_PARIDADE})
-      UNION ALL
-      (SELECT * EXCEPT (conjunto) FROM `{TABELA_GOLD}` AS g
-       WHERE conjunto = 'teste' AND ({tem_nulo})
-       ORDER BY FARM_FINGERPRINT(TO_JSON_STRING(g)) LIMIT {QTD_PARIDADE_NULOS})"""
+    clima_nulo = "numero_dias_sem_chuva IS NULL OR precipitacao IS NULL OR risco_fogo IS NULL"
+    # O mês de teste não tem focos sem bioma; o grupo de bioma nulo usa focos de
+    # teste com o bioma trocado por NULL, para cobrir o caso que a API vai receber
+    colunas = "* EXCEPT (conjunto)"
+    sem_bioma = "* EXCEPT (conjunto) REPLACE (CAST(NULL AS STRING) AS bioma)"
+    grupos = [(colunas, f"NOT ({clima_nulo})", QTD_PARIDADE, 1),
+              (sem_bioma, f"NOT ({clima_nulo})", QTD_PARIDADE_NULOS, 2),
+              (colunas, clima_nulo, QTD_PARIDADE_NULOS, 1)]
+    amostra = "\n      UNION ALL\n".join(
+        f"""(SELECT {selecao} FROM `{TABELA_GOLD}` AS g
+       WHERE conjunto = 'teste' AND bioma IS NOT NULL AND ({condicao})
+       ORDER BY FARM_FINGERPRINT(CONCAT({semente}, TO_JSON_STRING(g))) LIMIT {quantidade})"""
+        for selecao, condicao, quantidade, semente in grupos)
     previsto = consultar(cliente, f"""
         SELECT * EXCEPT (predicted_{ROTULO}_probs),
           (SELECT p.prob FROM UNNEST(predicted_{ROTULO}_probs) AS p WHERE p.label) AS prob
@@ -296,21 +306,25 @@ def texto_readme(r, treino) -> str:
         "",
         "### Resultado",
         "",
-        f"- **Versão do XGBoost:** a API fixa `xgboost-cpu=={r['xgboost_api']}`; o Booster exportado carrega "
-        f"no xgboost {r['xgboost_local']} ({r['arvores']} árvores, {r['colunas']} colunas, objetivo "
-        f"`{r['objetivo']}`)."
-        + (" O arquivo está no formato binário anterior ao XGBoost 1.0, e a carga avisa: \"consider "
-           "saving it again for improved compatibility\". Na C5, o pacote v1 leva também o Booster "
-           "salvo de novo em JSON, para não depender desse formato." if aviso_formato else ""),
+        f"- **Versão do XGBoost:** o BigQuery ML exporta o Booster no formato do XGBoost "
+        f"{VERSAO_XGBOOST_EXPORT} (documentação do `EXPORT MODEL`), sem fixar versão no `predictor.py`. A API "
+        f"fixa `xgboost-cpu=={r['xgboost_api']}`, e o Booster carrega no xgboost {r['xgboost_local']} "
+        f"({r['arvores']} árvores, {r['colunas']} colunas, objetivo `{r['objetivo']}`), sem precisar de "
+        "imagem antiga."
+        + (" A carga avisa \"Loading model from XGBoost < 1.0.0, consider saving it again\": na C5, o "
+           "pacote v1 leva também o Booster salvo de novo em JSON, para não depender desse formato."
+           if aviso_formato else ""),
         f"- **Arquivos do export:** {', '.join(f'`{a}`' for a in r['arquivos'])}.",
         f"- **Paridade:** {r['iguais']} de {r['focos']} probabilidades do Booster iguais às do `ML.PREDICT` "
         f"(maior diferença {r['max_diferenca']:.1e}). Por grupo: {grupos}. "
         f"{'Passou.' if passou else '**Não passou.**'}",
-        "- **Bioma nulo:** " + ("confirmado: o BigQuery ML trata o nulo como a categoria `_null_filler`."
-                                if total_bioma_nulo else
-                                "a amostra não teve focos sem bioma, então a regra do `_null_filler` vem do "
-                                "`predictor.py` do export e ainda precisa ser conferida (rode o script de novo "
-                                "ou confira na C5)."),
+        "- **Bioma nulo:** " + ("confirmado com focos de teste de bioma trocado por `NULL` (o mês de teste "
+                                "não tem focos sem bioma): o BigQuery ML trata o nulo como a categoria "
+                                "`_null_filler`, o índice 0." if total_bioma_nulo else
+                                "a amostra não teve focos sem bioma (o mês de teste não tem nenhum), então a "
+                                "regra do `_null_filler` vem do `predictor.py` do export. A versão atual do "
+                                "script troca o bioma de focos de teste por `NULL` para conferir; com o modelo "
+                                "real, isso entra na C5."),
         "",
         "### Passo a passo da preparação das variáveis (para a Frente D)",
         "",

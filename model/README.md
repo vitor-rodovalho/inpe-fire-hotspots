@@ -1,6 +1,8 @@
 # model/
 
-Frente C: exploração, limiar de "foco intenso", modelo e exportação.
+Frente C: exploração, limiar de "foco intenso", modelo e exportação. O modelo
+do projeto é o boosted tree do BigQuery ML, como o plano define (ver "Custos no
+GCP e a escolha do BigQuery ML", no fim).
 
 ## C1. Exploração e limiar
 
@@ -84,7 +86,7 @@ Meses de treino (out/2025 a ago/2026), focos com FRP:
 <!-- C2: início (gerado por model/sinal_modelo.py) -->
 ## C2. Sinal do modelo
 
-Gerado por `model/sinal_modelo.py` em 2026-10-27 03:56 UTC. XGBoost local sobre a Gold de treino (`focos.gold_treino`): treino de out/2025 a ago/2026 e teste em set/2026, só focos com FRP, rótulo pelo limiar de `focos.limiar_frp`, matriz na ordem e na codificação da API (`model/pacote.py`, xgboost 2.1.3).
+Gerado por `model/sinal_modelo.py` em 2026-10-27 03:56 UTC. XGBoost local sobre a Gold de treino (`focos.gold_treino`): treino de out/2025 a ago/2026 e teste em set/2026, só focos com FRP, rótulo pelo limiar de `focos.limiar_frp`, categóricas em one-hot (xgboost 2.1.3). É o teste de sinal do plano, antes do modelo do BigQuery ML.
 
 - Treino: 2.530.560 focos, 10.0% intensos.
 - Teste: 756.172 focos, 10.8% intensos.
@@ -107,7 +109,47 @@ Variáveis mais importantes do XGBoost (ganho): `hora` (1,390), `tipo_orbita=pol
 Sem `mes`, o ROC AUC muda em -0.003. Set/2026 não aparece no treino, então no teste o mês é sempre um valor que o modelo nunca viu.
 <!-- C2: fim -->
 
-## Custos no GCP
+<!-- C3: início (gerado por model/exportacao_brinquedo.py) -->
+## C3. Exportação de brinquedo
+
+Gerado por `model/exportacao_brinquedo.py` em 2026-10-31 22:02 UTC. O boosted tree do BigQuery ML foi treinado com 496 focos de treino da Gold (32 intensos), com as opções do plano e os hiperparâmetros da C2 (300 iterações), exportado com `EXPORT MODEL` e carregado em Python. O treino levou 9 minutos e faturou 24.8 GiB (US$ 0.15).
+
+### Resultado
+
+- **Versão do XGBoost:** o BigQuery ML exporta o Booster no formato do XGBoost 0.82 (documentação do `EXPORT MODEL`), sem fixar versão no `predictor.py`. A API fixa `xgboost-cpu==2.1.3`, e o Booster carrega no xgboost 2.1.3 (300 árvores, 9 colunas, objetivo `multi:softprob`), sem precisar de imagem antiga. A carga avisa "Loading model from XGBoost < 1.0.0, consider saving it again": na C5, o pacote v1 leva também o Booster salvo de novo em JSON, para não depender desse formato.
+- **Arquivos do export:** `assets/4_categorical_label.txt`, `assets/5_categorical_label.txt`, `assets/model_metadata.json`, `explanation_metadata.json`, `main.py`, `model.bst`, `xgboost_predictor-0.1.tar.gz`.
+- **Paridade:** 450 de 450 probabilidades do Booster iguais às do `ML.PREDICT` (maior diferença 2.7e-10). Por grupo: sem nulos: 400 de 400; bioma nulo: 0 de 0; clima nulo: 50 de 50. Passou.
+- **Bioma nulo:** a amostra não teve focos sem bioma (o mês de teste não tem nenhum), então a regra do `_null_filler` vem do `predictor.py` do export. A versão atual do script troca o bioma de focos de teste por `NULL` para conferir; com o modelo real, isso entra na C5.
+
+### Passo a passo da preparação das variáveis (para a Frente D)
+
+É o que o `ML.PREDICT` faz e o que a API precisa reproduzir para dar a mesma probabilidade:
+
+1. `hora` = `EXTRACT(HOUR FROM data_hora_gmt)` e `mes` = `EXTRACT(MONTH FROM data_hora_gmt)`, em UTC, como na Gold.
+2. `tipo_orbita` vem de `focos.satelites`.
+3. O vetor tem as variáveis na ordem de `feature_names` em `assets/model_metadata.json`, uma coluna por variável (as categóricas não viram one-hot):
+
+   0. `lat`: o valor; nulo vira -9.600124012096773
+   1. `lon`: o valor; nulo vira -48.97768381048386
+   2. `hora`: o valor; nulo vira 13.02620967741935
+   3. `mes`: o valor; nulo vira 8.754032258064521
+   4. `tipo_orbita`: índice no vocabulário (0 = `_null_filler`, 1 = `geoestacionario`, 2 = `polar`)
+   5. `bioma`: índice no vocabulário (0 = `_null_filler`, 1 = `Amazônia`, 2 = `Caatinga`, 3 = `Cerrado`, 4 = `Mata Atlântica`, 5 = `Pampa`, 6 = `Pantanal`)
+   6. `numero_dias_sem_chuva`: o valor; nulo vira 15.26004228329808
+   7. `precipitacao`: o valor; nulo vira 0.4691786447638608
+   8. `risco_fogo`: o valor; nulo vira 0.7876288659793814
+
+4. Carregar com `xgb.Booster(model_file="model.bst")` e chamar `predict` sem valores ausentes. A saída tem uma coluna por classe, na ordem de `class_names` (['true', 'false']): a probabilidade de intenso é a coluna de `"true"`.
+
+O `predictor.py` que vem no export (`xgboost_predictor-0.1.tar.gz`) não serve à API como está: ele quebra com numérica nula (`float(None)`), enquanto o BigQuery ML usa a média, e deixa a categoria nula como ausente, enquanto o vocabulário do export reserva o índice 0 (`_null_filler`) para ela.
+
+### Para a Frente D
+
+- O modelo real (C4) é exportado igual, em `gs://<BUCKET>/modelos/foco_intenso/v1/` (C5), com os mesmos arquivos. O `modelo.py` da API, que hoje monta one-hot pelo `manifest.json` do modelo provisório, precisa montar o vetor como acima, lendo os vocabulários e as médias do próprio export.
+- O limiar de decisão de `intenso` sai da C4. Com `auto_class_weights`, a probabilidade não é calibrada, e 0,5 marca intensos demais.
+<!-- C3: fim -->
+
+## Custos no GCP e a escolha do BigQuery ML
 
 Regra da Frente C: nada roda no GCP sem antes estimar o que vai ser
 processado e quanto vai custar.
@@ -115,68 +157,42 @@ processado e quanto vai custar.
 - **Antes de rodar:** dry-run (`DRY_RUN=1 bash sql/run_sql.sh arquivo.sql`, ou
   `dry_run=True` na API). Os scripts de `model/` já fazem isso e param se a
   consulta passar do limite (`LIMITE_GB_CONSULTA`, com `maximum_bytes_billed`).
-- **Tarifas:** consulta no BigQuery, US$ 6,25 por TiB lido; criação de modelo no
-  BigQuery ML, US$ 312,50 por TiB (10 GiB grátis por mês), 50 vezes mais cara.
-- **Depois de rodar:** conferir `totalBytesBilled` do job.
-- **Treino de modelos é local** (gratuito), como na C2.
+- **Tarifas:** consulta no BigQuery, US$ 6,25 por TiB lido (1 TiB grátis por
+  mês). No BigQuery ML, a tarifa de US$ 312,50 por TiB vale só para os modelos
+  internos (regressões linear e logística, k-means, PCA, ARIMA). O boosted
+  tree é um modelo externo: o treino roda no Vertex AI e é cobrado a US$ 6,25
+  por TiB, somando o pré-processamento e o tempo de máquina convertido em bytes.
+  `ML.EVALUATE` e `ML.PREDICT` também custam US$ 6,25 por TiB e entram na cota
+  grátis.
+- **Depois de rodar:** conferir `totalBytesBilled` do job e, no dia seguinte, o
+  relatório de faturamento por SKU.
 
-### O que aconteceu na C3 (20/10/2026)
+### O job de 20/10 e o teste de viabilidade
 
-Um boosted tree de teste no BigQuery ML, com só 500 focos (56 KB), ficou
-mais de 25 minutos na fase de treino e foi cancelado. Mesmo cancelado, o job
-cobrou **47.081.062.400 bytes (43,8 GiB)** na tarifa do BigQuery ML, cerca de
-US$ 10 a 14, conforme a cota grátis do mês. Os "bytes" do boosted tree não são
-o tamanho dos dados: a estimativa crescia junto com o tempo de processamento do
-treino, então o custo não tem relação com o volume e não dá para prever.
+O primeiro boosted tree de teste, em 20/10, com 500 focos, foi cancelado depois
+de 21 minutos, com 43,8 GiB faturados. Na época, esses bytes foram lidos na
+tarifa de US$ 312,50 por TiB (US$ 10 a 14), e o modelo passou a ser um XGBoost
+local, a reserva do plano. Na tarifa certa, o job custou US$ 0,27 e entrou na
+cota grátis: são os 0,05 TiB da SKU "Analysis" no relatório de 27/10.
 
-**Decisão:** a Frente C usa a reserva prevista no plano. O modelo é treinado com
-XGBoost local sobre a mesma Gold de treino, salvo num arquivo que a API carrega
-com a mesma versão do xgboost, e não com o `CREATE MODEL` do BigQuery ML. Com
-isso, a C3 deixa de testar o export do BigQuery ML e passa a combinar com a
-Frente D o formato do arquivo do modelo. O registro no Vertex AI, se feito,
-usa esse artefato.
+Para decidir com jobs que terminam, um teste de viabilidade mediu, de 29 a
+31/10, com os hiperparâmetros da C2:
 
-<!-- C3: início (gerado por model/teste_pacote_api.py) -->
-## C3. Teste do pacote do modelo
+| Etapa | O que mediu | Resultado |
+|---|---|---|
+| E0 | O job de 20/10 (500 focos, 10 iterações), em `INFORMATION_SCHEMA` | 1.257 s, 43,8 GiB, US$ 0,27 |
+| E1 | Treino com 9.808 focos (300 iterações) | 19 min, 53,7 GiB, US$ 0,33; registro no Vertex AI ok |
+| E2 | Treino com 253.549 focos | 19 min, 53,2 GiB, US$ 0,32 |
+| E3 | ROC AUC em set/2026, contra o XGBoost local na mesma amostra | 0,670 x 0,665 (10 mil); 0,714 x 0,716 (250 mil) |
 
-Gerado por `model/teste_pacote_api.py` em 2026-10-27 04:02 UTC, com 500 focos reais de treino de `focos.gold_treino`. É a "exportação de brinquedo" do plano, adaptada: o modelo real é um XGBoost treinado fora do BigQuery ML (ver "Custos no GCP"), então a C3 testa o pacote que a Frente C gera contra o código da API da Frente D (`origin/frente-d/api`).
+Os jobs levaram de 9 a 21 minutos e custaram de US$ 0,15 a 0,33, com 500 a
+250 mil focos e 10 a 300 iterações, sem relação clara com nenhum dos dois: o
+tempo é quase todo de subir as máquinas no Vertex AI (o de 31/10, da C3, com
+496 focos, levou 9 minutos e custou US$ 0,15). A projeção para a Gold inteira
+(2,5 milhões) é de US$ 0,30 a 1,00. O teste todo
+custou cerca de US$ 0,67, e a compatibilidade do export com a API é a C3.
 
-### Resultado
-
-- **Versão do XGBoost:** a API fixa `xgboost-cpu==2.1.3` em `api/requirements.txt`; o pacote foi gerado com `xgboost 2.1.3` (iguais). O treino da Frente C usa a mesma versão (`model/requirements.txt`).
-- **Carga:** a classe `Modelo` da API carregou o pacote (`foco_intenso_teste_v0`).
-- **Codificação:** 500 de 500 vetores montados pela API iguais aos do treino (15 colunas).
-- **Paridade:** 500 de 500 probabilidades iguais; maior diferença 0.0e+00. Passou.
-- **Categorias:** valores fora do manifest: nenhum. Focos sem bioma na amostra: 0; intensos: 60 de 500.
-
-### Passo a passo da preparação das variáveis (para a Frente D)
-
-É o que a Gold de treino, `model/pacote.py` e `api/app/features.py` + `modelo.py` fazem:
-
-1. `hora` = `EXTRACT(HOUR FROM data_hora_gmt)` e `mes` = `EXTRACT(MONTH FROM data_hora_gmt)`, em UTC.
-2. `tipo_orbita` vem de `focos.satelites` (no pacote, `satelites.json`).
-3. Vazio e -999 viram nulo em todas as numéricas; nulo entra no vetor como `NaN` (o XGBoost trata o ausente).
-4. Categóricas em one-hot, uma coluna por categoria na ordem do manifest; nulo ou valor fora da lista deixa todas as colunas em 0.
-5. O vetor segue a ordem de `variaveis` do `manifest.json`, e o Booster lê as colunas pela posição:
-
-   0. `lat`
-   1. `lon`
-   2. `hora`
-   3. `mes`
-   4. `tipo_orbita=geoestacionario`
-   5. `tipo_orbita=polar`
-   6. `bioma=Amazônia`
-   7. `bioma=Caatinga`
-   8. `bioma=Cerrado`
-   9. `bioma=Mata Atlântica`
-   10. `bioma=Pampa`
-   11. `bioma=Pantanal`
-   12. `numero_dias_sem_chuva`
-   13. `precipitacao`
-   14. `risco_fogo`
-
-### Para a Frente D
-
-- O pacote real tem o mesmo formato, com `versao_modelo` = `foco_intenso_v1`, em `gs://<BUCKET>/modelos/foco_intenso/v1/`. Não há export do BigQuery ML: o `api/README.md` ("Ainda falta") e o status ("D5 depende de C3") podem ser atualizados.
-- `bioma` é obrigatório no `schemas.py` da API, mas há focos sem bioma nos dados (perfil A1). O modelo aceita bioma nulo (todas as colunas de bioma em 0); se a API aceitar `None`, esses focos também podem ser pontuados.
-<!-- C3: fim -->
+**Decisão:** seguir o plano. O modelo do projeto é o boosted tree do BigQuery ML,
+treinado na C4 sobre a `gold_treino`, avaliado com `ML.EVALUATE`, registrado no
+Vertex AI e exportado para a API (C5). O XGBoost local fica só na C2, como teste
+de sinal.
