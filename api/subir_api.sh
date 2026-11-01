@@ -10,7 +10,8 @@
 #      - v1 (padrão): se ainda não estiver no bucket, roda api/montar_pacote_v1.py
 #        (EXPORT MODEL, 50 focos de paridade e conferência; centavos)
 #      - provisorio: treina o modelo de teste e envia ao bucket
-#   6. Build, deploy e teste na URL pública (api/deploy.sh)
+#   6. Token da API (reaproveita o do serviço ou gera um) e build, deploy e
+#      teste na URL pública (api/deploy.sh)
 #   7. Testa a API no ar: paridade, erros 422 e latência (api/testar_api.py),
 #      gravando docs/api_evidence.md
 #
@@ -81,6 +82,26 @@ else
 fi
 
 log "6/7 Build e deploy"
+# Token fixo de POST /predict, guardado em config.local.env (fora do Git). Se o
+# serviço já tiver um, ele é reaproveitado, para não invalidar o de quem já usa
+if [[ -z "${API_TOKEN:-}" ]]; then
+  API_TOKEN=$(cd api && python3 -c "from cliente_api import ler_token; print(ler_token())")
+  if [[ -n "${API_TOKEN}" ]]; then
+    echo "  Token da API reaproveitado do serviço no Cloud Run"
+  else
+    API_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    echo "  Token da API gerado"
+  fi
+  [[ -f config.local.env ]] || cp config.local.env.example config.local.env
+  if grep -q "^API_TOKEN=" config.local.env; then
+    sed -i "s/^API_TOKEN=.*/API_TOKEN=${API_TOKEN}/" config.local.env
+  else
+    printf '\nAPI_TOKEN=%s\n' "${API_TOKEN}" >> config.local.env
+  fi
+  export API_TOKEN
+  echo "  Guardado em config.local.env (fora do Git). Para ver: grep API_TOKEN config.local.env"
+fi
+
 bash api/deploy.sh --modelo "${VERSAO}" "${ARGS[@]}"
 
 URL=$(gcloud run services describe "${CLOUD_RUN_SERVICO}" --region="${REGIAO}" --format="value(status.url)")

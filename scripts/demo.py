@@ -11,6 +11,9 @@ Os focos 1 e 2 são os mais recentes de silver_focos_streaming (lidos só das
 partições a partir de DATA_CORTE, com dry run e teto de bytes). Com --offline,
 usa focos fixos e não consulta o BigQuery: é o plano B se a consulta falhar.
 
+O token da API vem de API_TOKEN, do config.local.env ou do próprio Cloud Run
+(api/cliente_api.py).
+
 Uso (a partir da raiz do repositório, com config.env carregado):
     set -a; source config.env; set +a
     python3 scripts/demo.py                     # URL do Cloud Run descoberta pelo gcloud
@@ -19,22 +22,19 @@ Uso (a partir da raiz do repositório, com config.env carregado):
 """
 
 import argparse
-import json
 import os
-import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api"))
+from cliente_api import chamar, ler_token, url_cloud_run  # noqa: E402
 
 # =============================================================================
 # Constantes. Os valores vêm de config.env
 # =============================================================================
 PROJECT_ID = os.environ.get("PROJECT_ID", "inpe-fire-hotspots")
 DATASET = os.environ.get("DATASET", "focos")
-REGIAO = os.environ.get("REGIAO", "us-central1")
 DATA_CORTE = os.environ.get("DATA_CORTE", "2026-10-01")
-SERVICO = os.environ.get("CLOUD_RUN_SERVICO", "api-foco-intenso")
 TETO_BYTES = 1024**3
 CAMPOS = ("satelite", "data_hora_gmt", "lat", "lon", "bioma", "numero_dias_sem_chuva", "precipitacao", "risco_fogo")
 
@@ -54,11 +54,6 @@ OFFLINE_SEM_FRP = {
     "numero_dias_sem_chuva": 12, "precipitacao": 0.2, "risco_fogo": 0.65,
 }  # fmt: skip
 # =============================================================================
-
-
-def url_cloud_run() -> str:
-    comando = ["gcloud", "run", "services", "describe", SERVICO, f"--region={REGIAO}", "--format=value(status.url)"]
-    return subprocess.run(comando, check=True, capture_output=True, text=True, shell=os.name == "nt").stdout.strip()
 
 
 def focos_recentes() -> tuple[dict, dict]:
@@ -94,15 +89,11 @@ def focos_recentes() -> tuple[dict, dict]:
     return com_frp, sem_frp
 
 
-def prever(url: str, foco: dict) -> tuple[dict, float]:
-    corpo = json.dumps({campo: foco[campo] for campo in CAMPOS}).encode("utf-8")
-    pedido = urllib.request.Request(f"{url}/predict", data=corpo, headers={"Content-Type": "application/json"})
-    inicio = time.perf_counter()
-    try:
-        with urllib.request.urlopen(pedido, timeout=60) as resposta:
-            return json.loads(resposta.read()), (time.perf_counter() - inicio) * 1000
-    except urllib.error.HTTPError as erro:
-        sys.exit(f"ERRO {erro.code} da API: {erro.read().decode()}")
+def prever(url: str, token: str, foco: dict) -> tuple[dict, float]:
+    status, resposta, ms = chamar(f"{url}/predict", {campo: foco[campo] for campo in CAMPOS}, token)
+    if status != 200:
+        sys.exit(f"ERRO {status} da API: {resposta}")
+    return resposta, ms
 
 
 def mostrar(numero: int, titulo: str, foco: dict, resposta: dict, ms: float, real: str | None) -> None:
@@ -125,23 +116,24 @@ def main() -> None:
     parser.add_argument("--offline", action="store_true", help="Focos fixos, sem consultar o BigQuery")
     args = parser.parse_args()
     url = (args.url or url_cloud_run()).rstrip("/")
-    print(f"API: {url}\n")
+    token = ler_token()
+    print(f"API: {url} ({'com token' if token else 'SEM TOKEN: /predict vai recusar'})\n")
 
     com_frp, sem_frp = (OFFLINE_COM_FRP, OFFLINE_SEM_FRP) if args.offline else focos_recentes()
     origem = "exemplo fixo" if args.offline else "acabou de chegar pelo streaming"
 
-    resposta, ms = prever(url, com_frp)
+    resposta, ms = prever(url, token, com_frp)
     real_intenso = com_frp["limiar"] is not None and com_frp["frp"] > com_frp["limiar"]
     real = (f"FRP {com_frp['frp']:.1f} MW, limiar {com_frp['limiar']:.1f} MW -> "
             f"{'INTENSO' if real_intenso else 'não intenso'} "
             f"({'acertou' if real_intenso == resposta['intenso'] else 'errou'})")  # fmt: skip
     mostrar(1, f"Foco com FRP ({origem}): previsão contra o real", com_frp, resposta, ms, real)
 
-    resposta, ms = prever(url, sem_frp)
+    resposta, ms = prever(url, token, sem_frp)
     mostrar(2, f"Foco sem FRP ({origem}): a estimativa é a única informação de intensidade", sem_frp,
             resposta, ms, f"sem FRP: o satélite {sem_frp['satelite']} não mede a intensidade")
 
-    resposta, ms = prever(url, HIPOTETICO)
+    resposta, ms = prever(url, token, HIPOTETICO)
     mostrar(3, "Foco hipotético: e se surgir um foco aqui, agora, com este clima?", HIPOTETICO, resposta, ms, None)
 
 

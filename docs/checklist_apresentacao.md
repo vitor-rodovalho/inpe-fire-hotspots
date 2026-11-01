@@ -16,8 +16,9 @@ ligado à toa.
 ## 15 minutos antes
 
 - [ ] Deixar a API sem cold start: `bash api/instancias_minimas.sh 1`.
-- [ ] Conferir a API inteira em menos de 1 minuto:
-      `python3 api/testar_api.py <URL>` (paridade, erros 422 e latência).
+- [ ] Conferir a API inteira em menos de 1 minuto: `python3 api/testar_api.py`
+      (token, paridade, erros 422 e latência). Os scripts acham o token
+      sozinhos (`config.local.env` ou o próprio Cloud Run).
 - [ ] Ligar o replay e confirmar que a Silver de streaming está recebendo focos.
 - [ ] Rodar a demo uma vez: `python3 scripts/demo.py`. Se o BigQuery falhar,
       o plano B é `python3 scripts/demo.py --offline`.
@@ -28,8 +29,9 @@ ligado à toa.
 
 - [ ] `python3 scripts/demo.py`: foco com FRP (previsão contra o real), foco
       sem FRP (a estimativa) e foco hipotético, com o tempo de cada resposta.
-- [ ] Se sobrar tempo: uma chamada com entrada inválida em `/docs` para mostrar
-      o erro 422.
+- [ ] Se sobrar tempo, em `/docs`: uma chamada sem token (401), depois
+      **Authorize** com o token e uma com entrada inválida (422). Ter o token
+      à mão: `cd api && python3 -c "from cliente_api import ler_token; print(ler_token())"`.
 
 ## Logo depois
 

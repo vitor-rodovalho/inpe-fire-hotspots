@@ -1,7 +1,8 @@
 """Rotas da API.
 
   GET  /health   Confirma que o modelo está carregado (usado para aquecer o serviço)
-  POST /predict  Recebe um foco, real ou hipotético, e devolve a probabilidade
+  POST /predict  Recebe um foco, real ou hipotético, e devolve a probabilidade.
+                 Exige o token fixo (app/auth.py)
 
 O modelo é carregado uma vez, quando o contêiner sobe. Se o pacote não puder
 ser lido, a API nem chega a responder, e o erro aparece no log do Cloud Run.
@@ -13,9 +14,10 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from . import config
+from .auth import exigir_token
 from .features import preparar_variaveis
 from .modelo import Modelo
 from .schemas import FocoEntrada, Previsao, Saude
@@ -33,6 +35,8 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
     app.state.modelo = Modelo.carregar(config.MODELO_URI)
+    if not config.API_TOKEN:
+        logging.getLogger(__name__).warning("API_TOKEN vazio: /predict está sem autenticação")
     yield
 
 
@@ -56,7 +60,7 @@ def health(request: Request) -> Saude:
     return Saude(status="ok", versao_modelo=request.app.state.modelo.versao)
 
 
-@app.post("/predict", response_model=Previsao)
+@app.post("/predict", response_model=Previsao, dependencies=[Depends(exigir_token)])
 def predict(foco: FocoEntrada, request: Request) -> Previsao:
     modelo: Modelo = request.app.state.modelo
 

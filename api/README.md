@@ -6,10 +6,11 @@ probabilidade de ele ser intenso. O modelo é o boosted tree do BigQuery ML
 FastAPI no Cloud Run como `api-foco-intenso`.
 
 ```
-POST /predict  {"satelite": "NOAA-20", "data_hora_gmt": "2026-10-14T18:42:00Z", ...}
+POST /predict  Authorization: Bearer <token>
+               {"satelite": "NOAA-20", "data_hora_gmt": "2026-10-14T18:42:00Z", ...}
             -> {"probabilidade_intenso": 0.7132, "intenso": true, "versao_modelo": "foco_intenso_v1"}
-GET  /health   {"status": "ok", "versao_modelo": "foco_intenso_v1"}
-GET  /docs     Documentação interativa (gerada pelo FastAPI)
+GET  /health   {"status": "ok", "versao_modelo": "foco_intenso_v1"}   (aberto)
+GET  /docs     Swagger, com o botão Authorize para o token        (aberto)
 ```
 
 Toda resposta traz o cabeçalho `X-Tempo-Processamento-Ms`, o tempo gasto
@@ -40,6 +41,7 @@ mensagem traz o comando que o dono do projeto precisa rodar.
 ```
 app/
   main.py      Rotas e carregamento do modelo quando o contêiner sobe
+  auth.py      Token fixo exigido em POST /predict (401 sem ele)
   schemas.py   Contrato: campos, tipos e faixas válidas (fora delas, 422)
   features.py  Entrada -> variáveis do modelo, calculadas como na Gold
   modelo.py    Lê o pacote (pasta local ou gs://) e monta o vetor como o ML.PREDICT
@@ -48,7 +50,8 @@ modelo_provisorio/
   treinar.py   Modelo de teste no formato do export, com dados sintéticos
 tests/         pytest, sem nuvem
 montar_pacote_v1.py   C5: export do modelo real, paridade e publicação do pacote
-testar_api.py         Testa a API no ar: paridade, erros 422 e latência
+testar_api.py         Testa a API no ar: token (401), paridade, erros 422 e latência
+cliente_api.py        Chamada HTTP e leitura do token, usado por testar_api.py e scripts/demo.py
 ```
 
 ## Contrato
@@ -68,6 +71,32 @@ uma linha da Silver pode ser enviada como está. `intenso` é
 `probabilidade_intenso >= 0,5`, o mesmo limiar do `ML.PREDICT`. Como o modelo
 foi treinado com `auto_class_weights`, a probabilidade não é calibrada e esse
 limiar marca mais intensos do que existem (ver `docs/model_metrics.md`).
+
+## Autenticação
+
+A URL é pública (vai para o professor), então `POST /predict` exige um token
+fixo no cabeçalho `Authorization: Bearer <token>`. Sem ele, ou com um token
+errado, a resposta é **401**, conferido antes do corpo: quem não tem o token
+não recebe nem os erros de validação. `/health` e `/docs` continuam abertos.
+
+| Onde | Como |
+|---|---|
+| Guardado | `API_TOKEN` em `config.local.env`, que não vai para o GitHub. O `subir_api.sh` reaproveita o do serviço no ar ou gera um novo (`secrets.token_hex(32)`) |
+| No Cloud Run | Variável de ambiente `API_TOKEN`, passada pelo `deploy.sh`, que recusa publicar sem ela |
+| Nos scripts | `testar_api.py`, `scripts/demo.py` e `medir_latencia.sh` leem sozinhos: `API_TOKEN`, `config.local.env` ou o próprio serviço, pelo `gcloud` |
+| No Swagger | Botão **Authorize** em `/docs`, colando só o token |
+| No Postman | Aba Authorization, tipo **Bearer Token** |
+
+Para ver o token do serviço no ar (precisa de acesso ao projeto):
+
+```bash
+cd api && python3 -c "from cliente_api import ler_token; print(ler_token())"
+```
+
+Na máquina, sem `API_TOKEN`, a checagem fica desligada e a API avisa no log.
+É um token fixo, sem expiração: para trocá-lo, apague a linha de
+`config.local.env`, gere outro e rode o deploy de novo. Um próximo passo seria
+guardá-lo no Secret Manager em vez de variável de ambiente.
 
 ## Como o modelo responde igual ao BigQuery
 
@@ -124,6 +153,13 @@ evita problema de acento no terminal do Windows; também serve para o Postman):
 
 ```bash
 curl -X POST localhost:8000/predict -H "Content-Type: application/json" --data-binary @exemplos/foco.json
+```
+
+Contra o Cloud Run, com o token:
+
+```bash
+curl -X POST https://api-foco-intenso-21360820866.us-central1.run.app/predict \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $API_TOKEN" --data-binary @exemplos/foco.json
 ```
 
 ## Docker

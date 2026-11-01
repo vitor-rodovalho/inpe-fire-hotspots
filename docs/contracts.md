@@ -113,6 +113,11 @@ Depois de mudar uma delas, reinicie o job (`pipeline/drain.sh` e
 
 ## API REST (Cloud Run, `api/`)
 
+**Autenticação:** `POST /predict` exige `Authorization: Bearer <token>`; sem
+ele ou com token errado, 401. O token é a variável `API_TOKEN`
+(`config.local.env`, fora do Git, e a variável de ambiente do serviço).
+`GET /health` e `/docs` são abertos.
+
 **Entrada de `POST /predict`:** as variáveis conhecidas no momento da
 detecção, com os nomes da Silver. O FRP não entra, então a API aceita foco real
 ou hipotético. Campos a mais são ignorados.
