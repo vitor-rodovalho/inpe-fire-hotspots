@@ -13,8 +13,8 @@ base no que se sabe no momento da detecção.
 - **Modelo e API:** classificador do BigQuery ML registrado no Vertex AI e
   servido por uma API REST no Cloud Run.
 
-**API no ar:** `https://api-foco-intenso-XXXXXXXX.us-central1.run.app`
-([documentação interativa](https://api-foco-intenso-XXXXXXXX.us-central1.run.app/docs)).
+**API no ar:** `https://api-foco-intenso-21360820866.us-central1.run.app`
+([documentação interativa](https://api-foco-intenso-21360820866.us-central1.run.app/docs)).
 Evidências de paridade e latência em [docs/api_evidence.md](docs/api_evidence.md).
 
 ## Arquitetura
