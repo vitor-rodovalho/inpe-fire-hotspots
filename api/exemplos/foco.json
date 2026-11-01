@@ -1,0 +1,10 @@
+{
+  "satelite": "NOAA-20",
+  "data_hora_gmt": "2026-10-14T18:42:00Z",
+  "lat": -9.51,
+  "lon": -56.2,
+  "bioma": "Amazônia",
+  "numero_dias_sem_chuva": 21,
+  "precipitacao": 0.0,
+  "risco_fogo": 0.97
+}

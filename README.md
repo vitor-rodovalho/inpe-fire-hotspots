@@ -13,6 +13,37 @@ base no que se sabe no momento da detecção.
 - **Modelo e API:** classificador do BigQuery ML registrado no Vertex AI e
   servido por uma API REST no Cloud Run.
 
+**API no ar:** `https://api-foco-intenso-XXXXXXXX.us-central1.run.app`
+([documentação interativa](https://api-foco-intenso-XXXXXXXX.us-central1.run.app/docs)).
+Evidências de paridade e latência em [docs/api_evidence.md](docs/api_evidence.md).
+
+## Arquitetura
+
+```
+                       INPE (arquivos CSV)
+              ┌───────────────┴────────────────┐
+      mensais: out/2025 a set/2026     diários: a partir de 01/10/2026
+              │  BATCH                         │  STREAMING
+     Cloud Storage → Bronze             replay → Pub/Sub (focos-replay)
+              │                                │
+     Silver histórica                   Dataflow: valida, limpa, deduplica
+     (origem = 'batch')                  ├→ Silver de streaming (origem = 'streaming')
+              │                          ├→ streaming_erros
+              │                          └→ gold_agregados_janela (janelas de 1 h)
+              └──────────┬──────────────────────┘
+               vw_focos_unificada (corte em DATA_CORTE)
+                         │
+               gold_treino → CREATE MODEL (BigQuery ML) → Vertex AI Model Registry
+                                     │
+                         EXPORT MODEL → gs://.../modelos/foco_intenso/v1/
+                                     │
+                         API no Cloud Run: POST /predict, GET /health
+```
+
+Todas as tabelas ficam no dataset `focos`, em `us-central1`, particionadas
+por dia da detecção com filtro obrigatório. Os nomes de tudo estão em
+[docs/contracts.md](docs/contracts.md).
+
 ## Estrutura do repositório
 
 ```
@@ -86,6 +117,12 @@ bash ingestion/run.sh replay_pubsub --inicio 2026-10-01 --fim 2026-10-03
 # 6. Evidências do streaming (depois do replay)
 bash sql/run_sql.sh sql/evidence/*.sql               # Versão rápida, só texto
 # Versão completa, com gráficos e resumo: notebooks/02_streaming_evidence.ipynb
+
+# 7. Silver histórica, Gold de treino e modelo: veja sql/README.md e model/README.md
+
+# 8. API no Cloud Run, com o modelo real: export, paridade, deploy e testes (centavos)
+bash api/subir_api.sh                                # veja api/README.md
+python3 scripts/demo.py                              # as três chamadas da apresentação
 ```
 
 Cada script de `infra/` pode ser executado novamente sem efeito colateral.
@@ -102,9 +139,12 @@ Passo a passo em [ingestion/README.md](ingestion/README.md#teste-sem-nuvem).
 | Item | Quando gasta | Como desativar |
 |---|---|---|
 | Dataflow | Enquanto o job estiver ativo (cerca de US$ 0,20 a 0,30/h) | `bash pipeline/drain.sh` |
-| Cloud Run | Por requisição. 1 instância mínima só no dia da apresentação | Voltar para 0 instâncias |
+| Cloud Run | Por requisição (dentro da cota gratuita). 1 instância mínima só no dia da apresentação | `bash api/instancias_minimas.sh 0` |
 | BigQuery | Por bytes lidos. Tabelas particionadas com filtro obrigatório | Usar `DRY_RUN=1` antes de consultas massivas |
 | Cloud Storage | Alguns GB de CSV | Apagar `raw/` depois da entrega |
 
 O orçamento (`infra/03_budget.sh`) avisa por e-mail em 50%, 90% e 100% de
 `ORCAMENTO_USD`, mas **não desativa nada sozinho**.
+
+No dia da apresentação, siga [docs/checklist_apresentacao.md](docs/checklist_apresentacao.md):
+o que ligar antes, o que mostrar e o que desligar depois.

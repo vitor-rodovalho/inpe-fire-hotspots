@@ -5,6 +5,7 @@ config.local.env
 __pycache__/
 *.pyc
 .venv/
+.venv-*/
 venv/
 .pytest_cache/
 *.egg-info/
@@ -29,3 +30,6 @@ streaming_output/
 
 # Estado do replay (último horário publicado)
 ingestion/.replay_state.json
+
+# Pacote do modelo gerado localmente pela API (api/modelo_provisorio/treinar.py)
+api/modelo_local/

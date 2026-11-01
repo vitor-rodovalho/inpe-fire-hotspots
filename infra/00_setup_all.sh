@@ -14,6 +14,7 @@ ETAPAS=(
   05_bigquery.sh
   06_service_accounts.sh
   07_pubsub.sh
+  09_artifact_registry.sh
 )
 
 for etapa in "${ETAPAS[@]}"; do
