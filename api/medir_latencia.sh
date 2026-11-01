@@ -15,10 +15,13 @@ QTD="${2:-20}"
 CORPO="${RAIZ_REPO}/api/exemplos/foco.json"
 TEMPOS=$(mktemp)
 
+# Token: config.local.env ou, se faltar, o do próprio Cloud Run (api/cliente_api.py)
+TOKEN="${API_TOKEN:-$(cd "${RAIZ_REPO}/api" && python3 -c "from cliente_api import ler_token; print(ler_token())")}"
+
 log "${QTD} chamadas a ${URL}/predict"
 for i in $(seq 1 "${QTD}"); do
   curl -sS -o /dev/null --fail -X POST "${URL}/predict" \
-    -H "Content-Type: application/json" --data-binary @"${CORPO}" \
+    -H "Content-Type: application/json" -H "Authorization: Bearer ${TOKEN}" --data-binary @"${CORPO}" \
     -w "%{time_total}\n" >> "${TEMPOS}"
 done
 

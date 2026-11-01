@@ -13,7 +13,8 @@
 #   bash api/deploy.sh --min 1            # dia da apresentação
 #
 # Pré-requisitos: infra/00_setup_all.sh (APIs, bucket, conta da API e
-# repositório Docker) e o pacote do modelo no bucket (api/publicar_modelo.sh).
+# repositório Docker), o pacote do modelo no bucket e API_TOKEN em
+# config.local.env (o api/subir_api.sh gera um, se faltar).
 source "$(dirname "$0")/../infra/common.sh"
 cd "${RAIZ_REPO}/api"
 
@@ -31,6 +32,8 @@ MODELO_URI="gs://${BUCKET}/${PASTA_MODELOS}/${VERSAO}"
 # A tag é o commit, para saber exatamente qual código está no ar
 TAG="$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . || echo '-alterado')"
 IMAGEM="${REGIAO}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${CLOUD_RUN_SERVICO}:${TAG}"
+
+exigir_variavel API_TOKEN   # Sem ele, POST /predict ficaria aberto a qualquer um
 
 if ! gcloud storage ls "${MODELO_URI}/manifest.json" >/dev/null 2>&1; then
   echo "ERRO: não há pacote do modelo em ${MODELO_URI}." >&2
@@ -56,7 +59,7 @@ gcloud run deploy "${CLOUD_RUN_SERVICO}" \
   --region="${REGIAO}" \
   --service-account="${SA_API_EMAIL}" \
   --allow-unauthenticated \
-  --set-env-vars="MODELO_URI=${MODELO_URI}" \
+  --set-env-vars="MODELO_URI=${MODELO_URI},API_TOKEN=${API_TOKEN}" \
   --memory="${CLOUD_RUN_MEMORIA}" \
   --cpu=1 \
   --cpu-boost \
@@ -80,6 +83,7 @@ curl -sS --fail "${URL}/health"
 echo
 curl -sS --fail -X POST "${URL}/predict" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${API_TOKEN}" \
   --data-binary @exemplos/foco.json \
   -w "\n(tempo total da chamada: %{time_total} s)\n"
 
