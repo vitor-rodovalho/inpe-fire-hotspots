@@ -112,14 +112,14 @@ Sem `mes`, o ROC AUC muda em -0.003. Set/2026 não aparece no treino, então no 
 <!-- C3: início (gerado por model/exportacao_brinquedo.py) -->
 ## C3. Exportação de brinquedo
 
-Gerado por `model/exportacao_brinquedo.py` em 2026-10-31 22:02 UTC. O boosted tree do BigQuery ML foi treinado com 496 focos de treino da Gold (32 intensos), com as opções do plano e os hiperparâmetros da C2 (300 iterações), exportado com `EXPORT MODEL` e carregado em Python. O treino levou 9 minutos e faturou 24.8 GiB (US$ 0.15).
+Gerado por `model/exportacao_brinquedo.py` em 2026-11-02 07:30 UTC. O boosted tree do BigQuery ML foi treinado com 496 focos de treino da Gold (32 intensos), com as opções do plano e os hiperparâmetros da C2 (300 iterações), exportado com `EXPORT MODEL` e carregado em Python. O treino levou 9 minutos e faturou 24.8 GiB (US$ 0.15).
 
 ### Resultado
 
 - **Versão do XGBoost:** o BigQuery ML exporta o Booster no formato do XGBoost 0.82 (documentação do `EXPORT MODEL`), sem fixar versão no `predictor.py`. A API fixa `xgboost-cpu==2.1.3`, e o Booster carrega no xgboost 2.1.3 (300 árvores, 9 colunas, objetivo `multi:softprob`), sem precisar de imagem antiga. A carga avisa "Loading model from XGBoost < 1.0.0, consider saving it again": na C5, o pacote v1 leva também o Booster salvo de novo em JSON, para não depender desse formato.
 - **Arquivos do export:** `assets/4_categorical_label.txt`, `assets/5_categorical_label.txt`, `assets/model_metadata.json`, `explanation_metadata.json`, `main.py`, `model.bst`, `xgboost_predictor-0.1.tar.gz`.
 - **Paridade:** 450 de 450 probabilidades do Booster iguais às do `ML.PREDICT` (maior diferença 2.7e-10). Por grupo: sem nulos: 400 de 400; bioma nulo: 0 de 0; clima nulo: 50 de 50. Passou.
-- **Bioma nulo:** a amostra não teve focos sem bioma (o mês de teste não tem nenhum), então a regra do `_null_filler` vem do `predictor.py` do export. A versão atual do script troca o bioma de focos de teste por `NULL` para conferir; com o modelo real, isso entra na C5.
+- **Bioma nulo:** a amostra não teve focos sem bioma (o mês de teste não tem nenhum), então a regra do `_null_filler` vem do `predictor.py` do export. Ela foi confirmada na C5, com o modelo real e focos de teste de bioma trocado por `NULL`.
 
 ### Passo a passo da preparação das variáveis (para a Frente D)
 
@@ -145,8 +145,8 @@ O `predictor.py` que vem no export (`xgboost_predictor-0.1.tar.gz`) não serve �
 
 ### Para a Frente D
 
-- O modelo real (C4) é exportado igual, em `gs://<BUCKET>/modelos/foco_intenso/v1/` (C5), com os mesmos arquivos. O `modelo.py` da API, que hoje monta one-hot pelo `manifest.json` do modelo provisório, precisa montar o vetor como acima, lendo os vocabulários e as médias do próprio export.
-- O limiar de decisão de `intenso` sai da C4. Com `auto_class_weights`, a probabilidade não é calibrada, e 0,5 marca intensos demais.
+- O modelo real (C4) é exportado igual, em `gs://<BUCKET>/modelos/foco_intenso/v1/` (C5), com os mesmos arquivos. O `api/app/modelo.py` monta o vetor como acima, lendo os vocabulários e as médias do próprio export.
+- A API usa o limiar de decisão de 0,5, o mesmo do `ML.PREDICT`. Com `auto_class_weights`, a probabilidade não é calibrada, e esse limiar marca intensos demais (`docs/model_metrics.md`).
 <!-- C3: fim -->
 
 ## C4. Treino e avaliação
@@ -177,6 +177,33 @@ iterações, profundidade 6, taxa de aprendizado 0,1 e subamostragem de 0,8, com
 o treino em todos os meses (`NO_SPLIT`). O padrão do BigQuery ML sortearia
 focos do treino para a parada antecipada, e focos vizinhos no tempo e no
 espaço são quase cópias, então esse sorteio mediria mal.
+
+## C5. Export e paridade
+
+Feita com a Frente D (D5), com os scripts de `api/`:
+
+- **`api/montar_pacote_v1.py`:** faz o `EXPORT MODEL` do `modelo_foco_intenso`
+  (C4) para `gs://<BUCKET>/modelos/foco_intenso/v1/`, salva o Booster também em
+  JSON (`model.json`), grava o `manifest.json` e o `satelites.json` e gera o
+  `model/paridade.jsonl`. Só publica o pacote se os 50 focos, passando pelo
+  código da API, derem a mesma probabilidade do `ML.PREDICT`.
+- **`model/paridade.jsonl`:** 50 focos do mês de teste (set/2026) lidos da
+  Silver: 40 completos, 5 com clima nulo e 5 com o bioma trocado por nulo. Cada
+  linha traz o foco no formato de entrada da API (`foco`), o `id`, o `frp` e a
+  probabilidade do `ML.PREDICT` (`prob_bigquery`).
+- **`api/testar_api.py`:** manda os 50 focos à URL do Cloud Run e compara a
+  resposta até a 4ª casa; o resultado está em `docs/api_evidence.md`.
+
+### Resultado (pronto quando: a API no Cloud Run devolve as 50 probabilidades)
+
+| Conferência | Resultado |
+|---|---|
+| `model/paridade.jsonl` contra a API no ar (`api/testar_api.py`, 02/11) | 50 de 50 iguais até a 4ª casa |
+| 50 outros focos de set/2026, com a probabilidade do `ML.PREDICT`, contra a API no ar (02/11) | 50 de 50 iguais até a 4ª casa |
+| Bioma nulo (5 focos do arquivo de paridade) | Iguais: o BigQuery ML trata o nulo como `_null_filler`, a regra da C3 |
+
+A segunda conferência usa uma amostra independente, sorteada pela Frente C,
+para que a paridade não dependa só dos focos escolhidos pelo script do pacote.
 
 ## Custos no GCP e a escolha do BigQuery ML
 
