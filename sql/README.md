@@ -29,8 +29,13 @@ Os arquivos que criam tabelas terminam com uma consulta de conferência.
 | 9 | `silver/02_vw_focos_unificada.sql` | `vw_focos_unificada` (view) | 7, 8 | Gold, demo, previsões |
 | 10 | `gold/01_gold_treino.sql` | `gold_treino` | 4, 6, 9 | Modelo (Frente C) |
 | 11 | `silver/03_check_silver.sql` | (conferência) | 8 | - |
+| 12 | `modelo/01_modelo_foco_intenso.sql` (Frente C) | `modelo_foco_intenso` (boosted tree, registrado no Vertex AI) | 10 | Previsões, API (export) |
+| 13 | `modelo/02_baseline_logistica.sql` (Frente C) | `baseline_logistica` | 10 | Avaliação |
+| 14 | `modelo/03_avaliacao.sql` e `04_roc_curve.sql` (Frente C) | (métricas do mês de teste) | 12, 13 | `docs/model_metrics.md` |
 
-O limiar (passo 6) é da Frente C e já está gravado; veja `model/README.md`.
+O limiar (passo 6) e o modelo (passos 12 a 14) são da Frente C, e já estão
+gravados; veja `model/README.md`. O `model/treino_avaliacao.py` roda os passos
+12 a 14 com dry run antes e grava as métricas.
 
 ```bash
 bash sql/run_sql.sh sql/bronze/01_external_tables.sql sql/bronze/02_bronze_focos_mensal.sql sql/bronze/03_check_bronze.sql
@@ -40,6 +45,7 @@ bash sql/run_sql.sh sql/silver/01_silver_focos_historico.sql
 bash sql/run_sql.sh sql/silver/02_vw_focos_unificada.sql
 bash sql/run_sql.sh sql/gold/01_gold_treino.sql
 bash sql/run_sql.sh sql/silver/03_check_silver.sql
+bash sql/run_sql.sh sql/modelo/*.sql   # Frente C: confira antes com DRY_RUN=1
 ```
 
 Depois de mudar `satelites` ou `limiar_frp`, reinicie o job do Dataflow

@@ -15,7 +15,8 @@
 -- cópias). Treino de out/2025 a ago/2026, teste em set/2026.
 --
 -- Ficam de fora os focos sem FRP, porque não têm rótulo. Focos sem bioma
--- ficam: o modelo da Frente C os aceita (todas as colunas de bioma em 0).
+-- ficam: o modelo do BigQuery ML os aceita (bioma nulo vira a categoria
+-- _null_filler).
 --
 -- É o mesmo conjunto que model/sinal_modelo.py (C2) montou direto da Bronze:
 -- no GCP, a Gold deve dar 2.530.560 focos de treino (10,0% intensos) e
