@@ -1,8 +1,24 @@
 # model/
 
-Frente C: exploração, limiar de "foco intenso", modelo e exportação. O modelo
-do projeto é o boosted tree do BigQuery ML, como o plano define (ver "Custos no
-GCP e a escolha do BigQuery ML", no fim).
+Frente C: exploração, limiar de "foco intenso", modelo, previsões e
+monitoramento. O modelo do projeto é o boosted tree do BigQuery ML, como o plano
+define (ver "Custos no GCP e a escolha do BigQuery ML", no fim). O resumo dos
+resultados, para os slides, está em
+[docs/model_results.md](../docs/model_results.md).
+
+| Etapa | Script ou SQL | Saída |
+|---|---|---|
+| C1. Exploração e limiar | `exploracao_limiar.py` | `focos.limiar_frp` |
+| C2. Sinal do modelo | `sinal_modelo.py` | Seção C2 deste README |
+| C3. Exportação de brinquedo | `exportacao_brinquedo.py` | Seção C3 (a nota para a API) |
+| C4. Treino e avaliação | `treino_avaliacao.py` e `sql/modelo/01` a `04` | `focos.modelo_foco_intenso` (Vertex AI `v1`), `docs/model_metrics.md` |
+| C5. Export e paridade | `api/montar_pacote_v1.py` e `api/testar_api.py` | `modelos/foco_intenso/v1/`, `paridade.jsonl`, `docs/api_evidence.md` |
+| C6. Previsões e monitoramento | `previsoes_monitoramento.py` e `sql/gold/02`, `03` | `vw_previsoes`, `vw_monitoramento` |
+| C7. Resultados | `resultados.py` e `sql/modelo/05` | `docs/model_results.md` |
+
+Todos os scripts fazem dry run antes de consultar o BigQuery e param se a
+consulta passar do teto de bytes. Para rodar: `pip install -r
+model/requirements.txt` e `set -a; source config.env; set +a`.
 
 ## C1. Exploração e limiar
 
@@ -112,14 +128,14 @@ Sem `mes`, o ROC AUC muda em -0.003. Set/2026 não aparece no treino, então no 
 <!-- C3: início (gerado por model/exportacao_brinquedo.py) -->
 ## C3. Exportação de brinquedo
 
-Gerado por `model/exportacao_brinquedo.py` em 2026-10-31 22:02 UTC. O boosted tree do BigQuery ML foi treinado com 496 focos de treino da Gold (32 intensos), com as opções do plano e os hiperparâmetros da C2 (300 iterações), exportado com `EXPORT MODEL` e carregado em Python. O treino levou 9 minutos e faturou 24.8 GiB (US$ 0.15).
+Gerado por `model/exportacao_brinquedo.py` em 2026-11-02 07:30 UTC. O boosted tree do BigQuery ML foi treinado com 496 focos de treino da Gold (32 intensos), com as opções do plano e os hiperparâmetros da C2 (300 iterações), exportado com `EXPORT MODEL` e carregado em Python. O treino levou 9 minutos e faturou 24.8 GiB (US$ 0.15).
 
 ### Resultado
 
 - **Versão do XGBoost:** o BigQuery ML exporta o Booster no formato do XGBoost 0.82 (documentação do `EXPORT MODEL`), sem fixar versão no `predictor.py`. A API fixa `xgboost-cpu==2.1.3`, e o Booster carrega no xgboost 2.1.3 (300 árvores, 9 colunas, objetivo `multi:softprob`), sem precisar de imagem antiga. A carga avisa "Loading model from XGBoost < 1.0.0, consider saving it again": na C5, o pacote v1 leva também o Booster salvo de novo em JSON, para não depender desse formato.
 - **Arquivos do export:** `assets/4_categorical_label.txt`, `assets/5_categorical_label.txt`, `assets/model_metadata.json`, `explanation_metadata.json`, `main.py`, `model.bst`, `xgboost_predictor-0.1.tar.gz`.
 - **Paridade:** 450 de 450 probabilidades do Booster iguais às do `ML.PREDICT` (maior diferença 2.7e-10). Por grupo: sem nulos: 400 de 400; bioma nulo: 0 de 0; clima nulo: 50 de 50. Passou.
-- **Bioma nulo:** a amostra não teve focos sem bioma (o mês de teste não tem nenhum), então a regra do `_null_filler` vem do `predictor.py` do export. A versão atual do script troca o bioma de focos de teste por `NULL` para conferir; com o modelo real, isso entra na C5.
+- **Bioma nulo:** a amostra não teve focos sem bioma (o mês de teste não tem nenhum), então a regra do `_null_filler` vem do `predictor.py` do export. Ela foi confirmada na C5, com o modelo real e focos de teste de bioma trocado por `NULL`.
 
 ### Passo a passo da preparação das variáveis (para a Frente D)
 
@@ -145,8 +161,8 @@ O `predictor.py` que vem no export (`xgboost_predictor-0.1.tar.gz`) não serve �
 
 ### Para a Frente D
 
-- O modelo real (C4) é exportado igual, em `gs://<BUCKET>/modelos/foco_intenso/v1/` (C5), com os mesmos arquivos. O `modelo.py` da API, que hoje monta one-hot pelo `manifest.json` do modelo provisório, precisa montar o vetor como acima, lendo os vocabulários e as médias do próprio export.
-- O limiar de decisão de `intenso` sai da C4. Com `auto_class_weights`, a probabilidade não é calibrada, e 0,5 marca intensos demais.
+- O modelo real (C4) é exportado igual, em `gs://<BUCKET>/modelos/foco_intenso/v1/` (C5), com os mesmos arquivos. O `api/app/modelo.py` monta o vetor como acima, lendo os vocabulários e as médias do próprio export.
+- A API usa o limiar de decisão de 0,5, o mesmo do `ML.PREDICT`. Com `auto_class_weights`, a probabilidade não é calibrada, e esse limiar marca intensos demais (`docs/model_metrics.md`).
 <!-- C3: fim -->
 
 ## C4. Treino e avaliação
@@ -177,6 +193,95 @@ iterações, profundidade 6, taxa de aprendizado 0,1 e subamostragem de 0,8, com
 o treino em todos os meses (`NO_SPLIT`). O padrão do BigQuery ML sortearia
 focos do treino para a parada antecipada, e focos vizinhos no tempo e no
 espaço são quase cópias, então esse sorteio mediria mal.
+
+## C5. Export e paridade
+
+Feita com a Frente D (D5), com os scripts de `api/`:
+
+- **`api/montar_pacote_v1.py`:** faz o `EXPORT MODEL` do `modelo_foco_intenso`
+  (C4) para `gs://<BUCKET>/modelos/foco_intenso/v1/`, salva o Booster também em
+  JSON (`model.json`), grava o `manifest.json` e o `satelites.json` e gera o
+  `model/paridade.jsonl`. Só publica o pacote se os 50 focos, passando pelo
+  código da API, derem a mesma probabilidade do `ML.PREDICT`.
+- **`model/paridade.jsonl`:** 50 focos do mês de teste (set/2026) lidos da
+  Silver: 40 completos, 5 com clima nulo e 5 com o bioma trocado por nulo. Cada
+  linha traz o foco no formato de entrada da API (`foco`), o `id`, o `frp` e a
+  probabilidade do `ML.PREDICT` (`prob_bigquery`).
+- **`api/testar_api.py`:** manda os 50 focos à URL do Cloud Run e compara a
+  resposta até a 4ª casa; o resultado está em `docs/api_evidence.md`.
+
+### Resultado (pronto quando: a API no Cloud Run devolve as 50 probabilidades)
+
+| Conferência | Resultado |
+|---|---|
+| `model/paridade.jsonl` contra a API no ar (`api/testar_api.py`, 02/11) | 50 de 50 iguais até a 4ª casa |
+| 50 outros focos de set/2026, com a probabilidade do `ML.PREDICT`, contra a API no ar (02/11) | 50 de 50 iguais até a 4ª casa |
+| Bioma nulo (5 focos do arquivo de paridade) | Iguais: o BigQuery ML trata o nulo como `_null_filler`, a regra da C3 |
+
+A segunda conferência usa uma amostra independente, sorteada pela Frente C,
+para que a paridade não dependa só dos focos escolhidos pelo script do pacote.
+
+<!-- C6: início (gerado por model/previsoes_monitoramento.py) -->
+## C6. Previsões e monitoramento
+
+Gerado por `model/previsoes_monitoramento.py` em 2026-11-02 07:41 UTC. As duas views aplicam o `modelo_foco_intenso` (C4), com `ML.PREDICT`, aos focos de streaming a partir da data de corte (2026-10-01), a cada consulta:
+
+| Arquivo | View | O que tem |
+|---|---|---|
+| `sql/gold/02_vw_previsoes.sql` | `vw_previsoes` | Cada foco com `probabilidade_intenso`, `previsto_intenso`, `real_intenso` (FRP acima do limiar da órbita) e `uso`: `avaliacao` com FRP, `estimativa` sem FRP |
+| `sql/gold/03_vw_monitoramento.sql` | `vw_monitoramento` | Por hora de ingestão, só com FRP: focos, intensos, previstos, acurácia, precisão e recall |
+| `sql/demo/08_model_monitoring.sql` | (consulta da demo) | O streaming contra o mês de teste |
+
+```bash
+bash sql/run_sql.sh sql/gold/02_vw_previsoes.sql sql/gold/03_vw_monitoramento.sql
+bash sql/run_sql.sh sql/demo/08_model_monitoring.sql
+```
+
+### Resultado, com os focos de streaming já gravados (19/10 07:26 a 01/11 00:00 UTC)
+
+| uso | tipo_orbita | Focos | Probabilidade média | Previstos intensos | Intensos reais |
+|---|---|---|---|---|---|
+| avaliacao | geoestacionario | 129.458 | 0,321 | 25.215 | 12.195 |
+| avaliacao | polar | 483.687 | 0,385 | 201.302 | 50.133 |
+| estimativa | geoestacionario | 2.803 | 0,426 | 1.081 | - |
+| estimativa | polar | 20.869 | 0,646 | 18.738 | - |
+
+A `vw_monitoramento` tem 6 horas de ingestão. Comparação com o mês de teste, com o mesmo limiar de decisão de 0,5 (`sql/demo/08_model_monitoring.sql`):
+
+| Período | Focos | Acurácia | Precisão | Recall |
+|---|---|---|---|---|
+| mês de teste (set/2026) | 756.172 | 0,650 | 0,183 | 0,649 |
+| streaming, todas as horas | 613.145 | 0,666 | 0,185 | 0,673 |
+| streaming, última hora (01/11 00:00 UTC) | 456 | 0,603 | 0,175 | 0,516 |
+| streaming sem FRP (só estimativa) | 23.672 | - | - | - |
+
+Os focos sem FRP aparecem só como estimativa, separados pela coluna `uso`: não entram nas métricas e não devem ser somados aos medidos.
+
+As três consultas leram 499 MB (US$ 0,0030).
+
+### Pronto quando
+
+As duas views respondem sobre os focos já gravados. Como o `ML.PREDICT` roda a cada consulta, os números mudam sozinhos quando o Dataflow grava focos novos; isso se confirma no ensaio, com o replay e o job ligados (`sql/demo/08_model_monitoring.sql` mostra a última hora mudando).
+<!-- C6: fim -->
+
+## C7. Resultados
+
+`resultados.py` junta, em [docs/model_results.md](../docs/model_results.md), o
+material do slide de resultados: o modelo contra os baselines no mês de teste,
+a importância das variáveis (`sql/modelo/05_importancia_variaveis.sql`, com
+`ML.FEATURE_IMPORTANCE`), o monitoramento de outubro contra setembro, as
+estimativas dos focos sem FRP por satélite e as limitações. As consultas somam
+cerca de 700 MB (menos de US$ 0,01); a importância só lê os metadados do modelo.
+
+Os destaques de 02/11:
+
+- ROC AUC de 0,725 no mês de teste, contra 0,649 da regressão logística.
+- `hora` e `tipo_orbita` respondem por 61% do ganho do modelo; o clima no
+  ponto, por 12%.
+- Em outubro, nos focos de streaming com FRP, precisão de 0,185 e recall de
+  0,673, contra 0,183 e 0,649 em setembro: o modelo se mantém.
+- Os satélites polares sem FRP (METOP-B e METOP-C) recebem probabilidade média
+  de 0,65; como nunca aparecem no treino, é uma extrapolação.
 
 ## Custos no GCP e a escolha do BigQuery ML
 

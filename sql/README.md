@@ -29,8 +29,15 @@ Os arquivos que criam tabelas terminam com uma consulta de conferência.
 | 9 | `silver/02_vw_focos_unificada.sql` | `vw_focos_unificada` (view) | 7, 8 | Gold, demo, previsões |
 | 10 | `gold/01_gold_treino.sql` | `gold_treino` | 4, 6, 9 | Modelo (Frente C) |
 | 11 | `silver/03_check_silver.sql` | (conferência) | 8 | - |
+| 12 | `modelo/01_modelo_foco_intenso.sql` (Frente C) | `modelo_foco_intenso` (boosted tree, registrado no Vertex AI) | 10 | Previsões, API (export) |
+| 13 | `modelo/02_baseline_logistica.sql` (Frente C) | `baseline_logistica` | 10 | Avaliação |
+| 14 | `modelo/03_avaliacao.sql`, `04_roc_curve.sql` e `05_importancia_variaveis.sql` (Frente C) | (métricas do mês de teste e importância das variáveis) | 12, 13 | `docs/model_metrics.md`, `docs/model_results.md` |
+| 15 | `gold/02_vw_previsoes.sql` (Frente C) | `vw_previsoes` (view com `ML.PREDICT`) | 9, 12 | Monitoramento, demo |
+| 16 | `gold/03_vw_monitoramento.sql` (Frente C) | `vw_monitoramento` (view) | 15 | Demo (`demo/08`) |
 
-O limiar (passo 6) é da Frente C e já está gravado; veja `model/README.md`.
+O limiar (passo 6), o modelo (passos 12 a 14) e as views de previsões e
+monitoramento (15 e 16) são da Frente C, e já estão gravados; veja `model/README.md`. O `model/treino_avaliacao.py` roda os passos
+12 a 14 com dry run antes e grava as métricas.
 
 ```bash
 bash sql/run_sql.sh sql/bronze/01_external_tables.sql sql/bronze/02_bronze_focos_mensal.sql sql/bronze/03_check_bronze.sql
@@ -40,6 +47,8 @@ bash sql/run_sql.sh sql/silver/01_silver_focos_historico.sql
 bash sql/run_sql.sh sql/silver/02_vw_focos_unificada.sql
 bash sql/run_sql.sh sql/gold/01_gold_treino.sql
 bash sql/run_sql.sh sql/silver/03_check_silver.sql
+bash sql/run_sql.sh sql/modelo/*.sql   # Frente C: confira antes com DRY_RUN=1
+bash sql/run_sql.sh sql/gold/02_vw_previsoes.sql sql/gold/03_vw_monitoramento.sql
 ```
 
 Depois de mudar `satelites` ou `limiar_frp`, reinicie o job do Dataflow
@@ -88,6 +97,18 @@ set/2026). As variáveis são calculadas como na API (`api/app/features.py`), e 
 conjunto é o mesmo que `model/sinal_modelo.py` montou na etapa C2.
 `gold_agregados_janela` é gravada pelo Dataflow, e para ler é preciso ficar com
 a gravação mais recente de cada janela (veja `docs/contracts.md`).
+`vw_previsoes` aplica o modelo, com `ML.PREDICT`, a cada foco de streaming e
+separa os que têm FRP (`uso = 'avaliacao'`, com o rótulo real) dos que não têm
+(`uso = 'estimativa'`). `vw_monitoramento` mede, por hora de ingestão, a
+acurácia, a precisão e o recall nos focos com FRP. As duas recalculam a cada
+consulta, então acompanham os focos que o Dataflow grava.
+
+**Modelo (`modelo/`, Frente C).** `01` treina o `modelo_foco_intenso` (boosted
+tree do BigQuery ML) nos focos de treino da `gold_treino` e o registra no Vertex
+AI; `02` treina a regressão logística usada como baseline; `03` e `04` avaliam
+no mês de teste (com o ROC AUC exato); `05` mostra a importância das variáveis.
+O `model/treino_avaliacao.py` roda `01` a `04` com dry run e grava
+`docs/model_metrics.md`; a explicação das escolhas está em `model/README.md`.
 
 
 ## Consultas da demo e evidências
@@ -97,6 +118,7 @@ a gravação mais recente de cada janela (veja `docs/contracts.md`).
 | `demo/` | `01` a `05` | Streaming: focos por minuto, latência, agregados, conferência da Gold e erros |
 | `demo/` | `06_count_by_origin.sql` | Focos por origem na view unificada |
 | `demo/` | `07_streaming_last_days.sql` | Focos de streaming por dia, nos últimos 3 dias |
+| `demo/` | `08_model_monitoring.sql` | O modelo nos focos de streaming com FRP, contra o mês de teste |
 | `evidence/` | `01` a `05` | Evidências do streaming (notebook 02) |
 | `evidence/` | `06_bytes_one_day.sql`, `07_bytes_whole_period.sql` | Bytes lidos com e sem filtro de data (rodar com `DRY_RUN=1`) |
 

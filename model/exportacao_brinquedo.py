@@ -322,9 +322,8 @@ def texto_readme(r, treino) -> str:
                                 "não tem focos sem bioma): o BigQuery ML trata o nulo como a categoria "
                                 "`_null_filler`, o índice 0." if total_bioma_nulo else
                                 "a amostra não teve focos sem bioma (o mês de teste não tem nenhum), então a "
-                                "regra do `_null_filler` vem do `predictor.py` do export. A versão atual do "
-                                "script troca o bioma de focos de teste por `NULL` para conferir; com o modelo "
-                                "real, isso entra na C5."),
+                                "regra do `_null_filler` vem do `predictor.py` do export. Ela foi confirmada na "
+                                "C5, com o modelo real e focos de teste de bioma trocado por `NULL`."),
         "",
         "### Passo a passo da preparação das variáveis (para a Frente D)",
         "",
@@ -349,10 +348,10 @@ def texto_readme(r, treino) -> str:
         "### Para a Frente D",
         "",
         "- O modelo real (C4) é exportado igual, em `gs://<BUCKET>/modelos/foco_intenso/v1/` (C5), com os "
-        "mesmos arquivos. O `modelo.py` da API, que hoje monta one-hot pelo `manifest.json` do modelo "
-        "provisório, precisa montar o vetor como acima, lendo os vocabulários e as médias do próprio export.",
-        "- O limiar de decisão de `intenso` sai da C4. Com `auto_class_weights`, a probabilidade não é "
-        "calibrada, e 0,5 marca intensos demais.",
+        "mesmos arquivos. O `api/app/modelo.py` monta o vetor como acima, lendo os vocabulários e as médias do "
+        "próprio export.",
+        "- A API usa o limiar de decisão de 0,5, o mesmo do `ML.PREDICT`. Com `auto_class_weights`, a "
+        "probabilidade não é calibrada, e esse limiar marca intensos demais (`docs/model_metrics.md`).",
         MARCA_FIM,
     ])
 
