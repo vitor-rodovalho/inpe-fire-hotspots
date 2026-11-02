@@ -1,8 +1,24 @@
 # model/
 
-Frente C: exploração, limiar de "foco intenso", modelo e exportação. O modelo
-do projeto é o boosted tree do BigQuery ML, como o plano define (ver "Custos no
-GCP e a escolha do BigQuery ML", no fim).
+Frente C: exploração, limiar de "foco intenso", modelo, previsões e
+monitoramento. O modelo do projeto é o boosted tree do BigQuery ML, como o plano
+define (ver "Custos no GCP e a escolha do BigQuery ML", no fim). O resumo dos
+resultados, para os slides, está em
+[docs/model_results.md](../docs/model_results.md).
+
+| Etapa | Script ou SQL | Saída |
+|---|---|---|
+| C1. Exploração e limiar | `exploracao_limiar.py` | `focos.limiar_frp` |
+| C2. Sinal do modelo | `sinal_modelo.py` | Seção C2 deste README |
+| C3. Exportação de brinquedo | `exportacao_brinquedo.py` | Seção C3 (a nota para a API) |
+| C4. Treino e avaliação | `treino_avaliacao.py` e `sql/modelo/01` a `04` | `focos.modelo_foco_intenso` (Vertex AI `v1`), `docs/model_metrics.md` |
+| C5. Export e paridade | `api/montar_pacote_v1.py` e `api/testar_api.py` | `modelos/foco_intenso/v1/`, `paridade.jsonl`, `docs/api_evidence.md` |
+| C6. Previsões e monitoramento | `previsoes_monitoramento.py` e `sql/gold/02`, `03` | `vw_previsoes`, `vw_monitoramento` |
+| C7. Resultados | `resultados.py` e `sql/modelo/05` | `docs/model_results.md` |
+
+Todos os scripts fazem dry run antes de consultar o BigQuery e param se a
+consulta passar do teto de bytes. Para rodar: `pip install -r
+model/requirements.txt` e `set -a; source config.env; set +a`.
 
 ## C1. Exploração e limiar
 
@@ -204,6 +220,68 @@ Feita com a Frente D (D5), com os scripts de `api/`:
 
 A segunda conferência usa uma amostra independente, sorteada pela Frente C,
 para que a paridade não dependa só dos focos escolhidos pelo script do pacote.
+
+<!-- C6: início (gerado por model/previsoes_monitoramento.py) -->
+## C6. Previsões e monitoramento
+
+Gerado por `model/previsoes_monitoramento.py` em 2026-11-02 07:41 UTC. As duas views aplicam o `modelo_foco_intenso` (C4), com `ML.PREDICT`, aos focos de streaming a partir da data de corte (2026-10-01), a cada consulta:
+
+| Arquivo | View | O que tem |
+|---|---|---|
+| `sql/gold/02_vw_previsoes.sql` | `vw_previsoes` | Cada foco com `probabilidade_intenso`, `previsto_intenso`, `real_intenso` (FRP acima do limiar da órbita) e `uso`: `avaliacao` com FRP, `estimativa` sem FRP |
+| `sql/gold/03_vw_monitoramento.sql` | `vw_monitoramento` | Por hora de ingestão, só com FRP: focos, intensos, previstos, acurácia, precisão e recall |
+| `sql/demo/08_model_monitoring.sql` | (consulta da demo) | O streaming contra o mês de teste |
+
+```bash
+bash sql/run_sql.sh sql/gold/02_vw_previsoes.sql sql/gold/03_vw_monitoramento.sql
+bash sql/run_sql.sh sql/demo/08_model_monitoring.sql
+```
+
+### Resultado, com os focos de streaming já gravados (19/10 07:26 a 01/11 00:00 UTC)
+
+| uso | tipo_orbita | Focos | Probabilidade média | Previstos intensos | Intensos reais |
+|---|---|---|---|---|---|
+| avaliacao | geoestacionario | 129.458 | 0,321 | 25.215 | 12.195 |
+| avaliacao | polar | 483.687 | 0,385 | 201.302 | 50.133 |
+| estimativa | geoestacionario | 2.803 | 0,426 | 1.081 | - |
+| estimativa | polar | 20.869 | 0,646 | 18.738 | - |
+
+A `vw_monitoramento` tem 6 horas de ingestão. Comparação com o mês de teste, com o mesmo limiar de decisão de 0,5 (`sql/demo/08_model_monitoring.sql`):
+
+| Período | Focos | Acurácia | Precisão | Recall |
+|---|---|---|---|---|
+| mês de teste (set/2026) | 756.172 | 0,650 | 0,183 | 0,649 |
+| streaming, todas as horas | 613.145 | 0,666 | 0,185 | 0,673 |
+| streaming, última hora (01/11 00:00 UTC) | 456 | 0,603 | 0,175 | 0,516 |
+| streaming sem FRP (só estimativa) | 23.672 | - | - | - |
+
+Os focos sem FRP aparecem só como estimativa, separados pela coluna `uso`: não entram nas métricas e não devem ser somados aos medidos.
+
+As três consultas leram 499 MB (US$ 0,0030).
+
+### Pronto quando
+
+As duas views respondem sobre os focos já gravados. Como o `ML.PREDICT` roda a cada consulta, os números mudam sozinhos quando o Dataflow grava focos novos; isso se confirma no ensaio, com o replay e o job ligados (`sql/demo/08_model_monitoring.sql` mostra a última hora mudando).
+<!-- C6: fim -->
+
+## C7. Resultados
+
+`resultados.py` junta, em [docs/model_results.md](../docs/model_results.md), o
+material do slide de resultados: o modelo contra os baselines no mês de teste,
+a importância das variáveis (`sql/modelo/05_importancia_variaveis.sql`, com
+`ML.FEATURE_IMPORTANCE`), o monitoramento de outubro contra setembro, as
+estimativas dos focos sem FRP por satélite e as limitações. As consultas somam
+cerca de 700 MB (menos de US$ 0,01); a importância só lê os metadados do modelo.
+
+Os destaques de 02/11:
+
+- ROC AUC de 0,725 no mês de teste, contra 0,649 da regressão logística.
+- `hora` e `tipo_orbita` respondem por 61% do ganho do modelo; o clima no
+  ponto, por 12%.
+- Em outubro, nos focos de streaming com FRP, precisão de 0,185 e recall de
+  0,673, contra 0,183 e 0,649 em setembro: o modelo se mantém.
+- Os satélites polares sem FRP (METOP-B e METOP-C) recebem probabilidade média
+  de 0,65; como nunca aparecem no treino, é uma extrapolação.
 
 ## Custos no GCP e a escolha do BigQuery ML
 
