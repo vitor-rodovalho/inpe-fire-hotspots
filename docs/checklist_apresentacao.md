@@ -23,9 +23,36 @@ ligado à toa.
 - [ ] Rodar a demo uma vez: `python3 scripts/demo.py`. Se o BigQuery falhar,
       o plano B é `python3 scripts/demo.py --offline`.
 - [ ] Deixar abertos: o grafo do job no console do Dataflow, o BigQuery com as
-      consultas de `sql/demo/` e `https://<URL>/docs`.
+      consultas de `sql/demo/` e `https://api-foco-intenso-21360820866.us-central1.run.app/docs`.
 
-## Durante a demo (parte da API, cerca de 1 minuto)
+## Durante a demo: pipelines batch e streaming (cerca de 4 minutos)
+
+Deixar o replay rodando em um terminal e as consultas em outro (ou no console
+do BigQuery). Cada consulta pode ser rodada de novo para mostrar os números
+mudando.
+
+- [ ] **Gerador → Pub/Sub.** Mostrar o terminal do replay publicando
+      (`bash ingestion/run.sh replay_pubsub --inicio <dia novo> --fracao-invalidas 0.02`)
+      e uma mensagem JSON de exemplo (`pipeline/tests/data/sample_hotspot.json`).
+- [ ] **Processador.** No console do Dataflow, o grafo do job `focos-streaming`:
+      Validar → Limpar → Deduplicar → Silver e Janela de 1 h → agregados.
+- [ ] **Persistência em tempo real.**
+      `bash sql/run_sql.sh sql/demo/01_streaming_per_minute.sql` (focos por
+      minuto crescendo) e `sql/demo/02_streaming_latency.sql` (Pub/Sub até o
+      BigQuery).
+- [ ] **Limpeza.** `sql/demo/05_errors_by_reason.sql`: as mensagens inválidas
+      foram separadas por motivo, sem perder o foco original.
+- [ ] **Agregados.** `sql/demo/03_recent_aggregates.sql` (últimas janelas por
+      estado) e `sql/demo/04_check_aggregates.sql` (Dataflow = SQL, `ok`).
+- [ ] **Batch + streaming juntos.** `sql/demo/06_count_by_origin.sql`: `batch`
+      parado e `streaming` subindo na `vw_focos_unificada`, e
+      `sql/demo/07_streaming_last_days.sql` com o dia do replay crescendo.
+- [ ] **Papel de cada pipeline.** O batch (mensais → Bronze → Silver → Gold)
+      ensina o modelo; o streaming aplica e avalia:
+      `sql/demo/08_model_monitoring.sql` mostra as métricas do modelo nos focos
+      que acabaram de chegar, ao lado do mês de teste.
+
+## Durante a demo: API no Cloud Run (cerca de 1 minuto)
 
 - [ ] `python3 scripts/demo.py`: foco com FRP (previsão contra o real), foco
       sem FRP (a estimativa) e foco hipotético, com o tempo de cada resposta.

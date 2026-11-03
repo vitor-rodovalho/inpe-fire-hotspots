@@ -17,6 +17,16 @@ base no que se sabe no momento da detecção.
 ([documentação interativa](https://api-foco-intenso-21360820866.us-central1.run.app/docs)).
 Evidências de paridade e latência em [docs/api_evidence.md](docs/api_evidence.md).
 
+```bash
+curl -X POST https://api-foco-intenso-21360820866.us-central1.run.app/predict \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  --data-binary @api/exemplos/foco.json
+```
+
+O token fica em `config.local.env`, fora do Git (veja [api/README.md](api/README.md)).
+Sem ele, `POST /predict` devolve 401. `GET /health` é aberto.
+
 ## Arquitetura
 
 ```
@@ -40,9 +50,38 @@ Evidências de paridade e latência em [docs/api_evidence.md](docs/api_evidence.
                          API no Cloud Run: POST /predict, GET /health
 ```
 
-Todas as tabelas ficam no dataset `focos`, em `us-central1`, particionadas
-por dia da detecção com filtro obrigatório. Os nomes de tudo estão em
-[docs/contracts.md](docs/contracts.md).
+Todas as tabelas ficam no dataset `focos`, em `us-central1`. Os nomes de tudo
+estão em [docs/contracts.md](docs/contracts.md).
+
+## Escolhas de particionamento e processamento
+
+| Tabela | Partição | Cluster | Por quê |
+|---|---|---|---|
+| `bronze_focos_mensal` | mês de referência | `nome_arquivo` | Um arquivo mensal do INPE por partição: recarregar um mês troca só aquela partição |
+| `silver_focos_historico` (batch) | `data_deteccao` (filtro obrigatório) | `estado`, `satelite` | Mesmo esquema e mesma partição da de streaming, para a view unificada ler só os dias pedidos nas duas |
+| `silver_focos_streaming` | `data_deteccao` (filtro obrigatório) | `estado`, `satelite` | O Dataflow grava no dia da detecção; as consultas da demo leem só os dias do replay |
+| `gold_agregados_janela` | dia de `inicio_janela` (filtro obrigatório) | `estado` | As janelas de 1 h são lidas por dia e por estado |
+| `streaming_erros` | dia de `recebido_em` | - | Erros são consultados pelos dias recentes |
+
+- **Filtro obrigatório de partição:** nenhuma consulta lê a tabela inteira por
+  engano. Um dia de streaming custa uma fração do período todo
+  (`sql/evidence/06_bytes_one_day.sql` e `07_bytes_whole_period.sql`).
+- **Data de corte (`DATA_CORTE`):** cada dia vem de uma só fonte. Antes dela,
+  batch (arquivos mensais, carga em SQL); a partir dela, streaming (Dataflow).
+  A `vw_focos_unificada` junta as duas, com a coluna `origem` mostrando de onde
+  veio cada foco.
+- **Batch em SQL no BigQuery:** os mensais chegam uma vez por mês e são grandes;
+  SQL é mais simples e barato que manter um job para isso. O batch também treina
+  o modelo (`gold_treino` → BigQuery ML).
+- **Streaming no Dataflow (Apache Beam):** valida e limpa foco a foco, manda os
+  inválidos para `streaming_erros`, remove repetidos do Pub/Sub (entrega pelo
+  menos uma vez) e agrega em janelas de 1 h pelo **horário da detecção**
+  (atributo `ts_evento`), não pelo de chegada, para que a janela signifique uma
+  hora real de fogo a qualquer velocidade de replay. Detalhes em
+  [pipeline/README.md](pipeline/README.md).
+- **Modelo exportado para a API:** a API carrega o pacote do modelo do bucket e
+  responde em memória, sem chamar um endpoint do Vertex AI a cada requisição.
+  Isso mantém a latência baixa e o custo por requisição, sem máquina ligada.
 
 ## Estrutura do repositório
 
