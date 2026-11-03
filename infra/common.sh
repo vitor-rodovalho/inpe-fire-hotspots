@@ -20,6 +20,15 @@ set +a
 SA_DATAFLOW_EMAIL="${SA_DATAFLOW}@${PROJECT_ID}.iam.gserviceaccount.com"
 SA_API_EMAIL="${SA_API}@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# URL pública da API no formato fixo do Cloud Run (serviço-número.região.run.app).
+# É a mesma em todo deploy, ao contrário da de status.url (com hash), e é a que
+# fica no README.
+url_api() {
+  local numero
+  numero=$(gcloud projects describe "${PROJECT_ID}" --format="value(projectNumber)")
+  echo "https://${CLOUD_RUN_SERVICO}-${numero}.${REGIAO}.run.app"
+}
+
 log() { printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
 exigir_variavel() {

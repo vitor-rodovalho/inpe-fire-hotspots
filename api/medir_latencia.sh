@@ -10,7 +10,7 @@
 #   bash api/medir_latencia.sh http://localhost:8080 50
 source "$(dirname "$0")/../infra/common.sh"
 
-URL="${1:-$(gcloud run services describe "${CLOUD_RUN_SERVICO}" --region="${REGIAO}" --format="value(status.url)")}"
+URL="${1:-$(url_api)}"
 QTD="${2:-20}"
 CORPO="${RAIZ_REPO}/api/exemplos/foco.json"
 TEMPOS=$(mktemp)

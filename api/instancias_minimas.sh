@@ -16,7 +16,7 @@ QTD="${1:?Informe 0 ou 1, por exemplo: bash api/instancias_minimas.sh 1}"
 log "Instâncias mínimas de ${CLOUD_RUN_SERVICO}: ${QTD}"
 gcloud run services update "${CLOUD_RUN_SERVICO}" --region="${REGIAO}" --min-instances="${QTD}" --quiet
 
-URL=$(gcloud run services describe "${CLOUD_RUN_SERVICO}" --region="${REGIAO}" --format="value(status.url)")
+URL=$(url_api)
 if [[ "${QTD}" != "0" ]]; then
   log "Aquecendo ${URL}/health"
   curl -sS --fail "${URL}/health" -w "\n(%{time_total} s)\n"
