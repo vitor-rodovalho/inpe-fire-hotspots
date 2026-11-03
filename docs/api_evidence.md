@@ -1,6 +1,6 @@
 # Evidências da API (Frente D)
 
-Gerado por `api/testar_api.py` em 2026-11-01 01:08 UTC, contra `https://api-foco-intenso-6m75iwripa-uc.a.run.app`.
+Gerado por `api/testar_api.py` em 2026-11-01 01:08 UTC, contra `https://api-foco-intenso-21360820866.us-central1.run.app`.
 
 | Teste | Resultado |
 |---|---|

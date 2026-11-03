@@ -69,7 +69,7 @@ gcloud run deploy "${CLOUD_RUN_SERVICO}" \
   --timeout=30 \
   --labels="frente=d,modelo=${VERSAO//[^a-z0-9_-]/_}"
 
-URL=$(gcloud run services describe "${CLOUD_RUN_SERVICO}" --region="${REGIAO}" --format="value(status.url)")
+URL=$(url_api)
 
 log "Conferindo ${URL}"
 if [[ "$(curl -s -o /dev/null -w "%{http_code}" "${URL}/health")" == "403" ]]; then

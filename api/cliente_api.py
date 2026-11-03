@@ -36,7 +36,9 @@ def _gcloud(*argumentos: str) -> str:
 
 
 def url_cloud_run() -> str:
-    return _gcloud("run", "services", "describe", SERVICO, f"--region={REGIAO}", "--format=value(status.url)").strip()
+    """URL no formato fixo do Cloud Run (serviço-número.região.run.app), a mesma do README."""
+    numero = _gcloud("projects", "describe", PROJECT_ID, "--format=value(projectNumber)").strip()
+    return f"https://{SERVICO}-{numero}.{REGIAO}.run.app"
 
 
 def ler_token() -> str:

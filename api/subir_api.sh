@@ -104,7 +104,7 @@ fi
 
 bash api/deploy.sh --modelo "${VERSAO}" "${ARGS[@]}"
 
-URL=$(gcloud run services describe "${CLOUD_RUN_SERVICO}" --region="${REGIAO}" --format="value(status.url)")
+URL=$(url_api)
 
 log "7/7 Teste da API no ar"
 if [[ "${VERSAO}" == "provisorio" ]]; then
