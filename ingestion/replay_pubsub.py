@@ -37,6 +37,7 @@ Uso (a partir da raiz do repositório):
 """
 
 import argparse
+import concurrent.futures
 import datetime as dt
 import itertools
 import json
@@ -67,6 +68,7 @@ PROGRESSO_A_CADA = 1000  # Mensagens entre duas linhas de progresso
 LOTE_MAX_MENSAGENS = 500  # O cliente do Pub/Sub agrupa mensagens em lotes
 LOTE_MAX_LATENCIA_S = 0.05
 LIMITE_PENDENTES = 2000  # Mensagens ainda não confirmadas antes de o envio esperar
+ESPERA_CONFIRMACOES_S = 60  # Tempo máximo, no fim, para o Pub/Sub confirmar o último lote
 
 ARQUIVO_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".replay_state.json")
 
@@ -234,6 +236,7 @@ def publicar(grupos, esperas, args) -> dict[str, int]:
     sorteio = random.Random(SEMENTE_ALEATORIA)
     contagem = {"focos": 0, "invalidas": 0, "falhas": 0}
     trava = threading.Lock()
+    pendentes = []  # Envios ainda sem confirmação, para esperar por eles no fim
 
     def ao_confirmar(futuro) -> None:
         if futuro.exception() is not None:
@@ -246,7 +249,9 @@ def publicar(grupos, esperas, args) -> dict[str, int]:
         for (instante, focos_do_instante), espera in zip(grupos, esperas):
             for foco in focos_do_instante:
                 for corpo, atributos, motivo in mensagens_do_foco(foco, instante, sorteio, args.fracao_invalidas):
-                    publicador.publish(topico, corpo, **atributos).add_done_callback(ao_confirmar)
+                    futuro = publicador.publish(topico, corpo, **atributos)
+                    futuro.add_done_callback(ao_confirmar)
+                    pendentes.append(futuro)
                     contagem["focos" if motivo is None else "invalidas"] += 1
                 if contagem["focos"] % PROGRESSO_A_CADA == 0:
                     taxa = contagem["focos"] / max(time.monotonic() - inicio, 1e-9)
@@ -257,12 +262,18 @@ def publicar(grupos, esperas, args) -> dict[str, int]:
                 if args.intervalo_fixo is not None:
                     time.sleep(args.intervalo_fixo)
             ultimo_publicado = instante
+            pendentes = [futuro for futuro in pendentes if not futuro.done()]  # A lista não cresce sem limite
             if args.intervalo_fixo is None:
                 time.sleep(espera)
     except KeyboardInterrupt:
         print("\nInterrompido. Enviando o que já estava na fila...")
     finally:
-        publicador.stop()  # Envia o que estiver pendente e espera as confirmações
+        publicador.stop()  # Envia o que estiver pendente, mas não espera
+        # Sem esta espera, o processo pode fechar antes de o último lote sair, e os
+        # focos do último horário nunca chegam ao Pub/Sub
+        _, sem_confirmacao = concurrent.futures.wait(pendentes, timeout=ESPERA_CONFIRMACOES_S)
+        with trava:
+            contagem["falhas"] += len(sem_confirmacao)
         if ultimo_publicado is not None:
             gravar_ultimo_instante(ultimo_publicado)
 
